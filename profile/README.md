@@ -1,9 +1,18 @@
 
 
-<div style="display: flex; gap: 2.5rem; align-items: center;">
-<img src="assets/norad_logo-green.png" alt="Norad Logo" width="250" style="flex-grow: 0;"/>
-<h1 style="border-bottom: none; margin-top: 1.5rem"> Welcome to Norad on GitHub!<span style="font-size: 1.5rem;  margin-top: 0; font-style: italic;"><br>The Norwegian Agency for Development Cooperation</span></h1>
-</div>
+<table style="border: none; border-collapse: collapse;">
+  <tbody>
+    <tr>
+      <td style="border: none; padding-right: 2.5rem; vertical-align: middle;">
+        <img src="assets/norad_logo-green.png" alt="Norad Logo" width="250"/>
+      </td>
+      <td style="border: none; vertical-align: middle;">
+        <h1 style="border-bottom: none; margin-bottom: -0.7rem;">Welcome to Norad on GitHub!</h1>
+        <p style="font-size: 0.9em; margin-top: 0; font-style: italic; margin-bottom: 0;">The Norwegian Agency for Development Cooperation</p>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 <p style="margin-top: 1rem;">
 Norad is the Norwegian Agency for Development Cooperation. We function as an administrative and specialist body supporting the Ministry of Foreign Affairs and the Ministry of Climate and the Environment. Our work is grounded in achieving Norwegian development policy goals, promoting sustainable development, and is guided by the UN's Sustainable Development Goals (SDGs), climate goals, and human rights. We are based in Oslo and have around 320 dedicated employees.
