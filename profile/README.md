@@ -1,14 +1,15 @@
-# Welcome to Norad - The Norwegian Agency for Development Cooperation
 
-<p align="center">
-  <a href="https://www.norad.no/">
-    <img src="assets/norad_logo-green.png" alt="Norad Logo" width="200"/>
-  </a>
+
+<div style="display: flex; gap: 2.5rem; align-items: center;">
+<img src="assets/norad_logo-green.png" alt="Norad Logo" width="250" style="flex-grow: 0;"/>
+<h1 style="border-bottom: none; margin-top: 1.5rem"> Welcome to Norad on GitHub!<span style="font-size: 1.5rem;  margin-top: 0; font-style: italic;"><br>The Norwegian Agency for Development Cooperation</span></h1>
+</div>
+
+<p style="margin-top: 1rem;">
+Norad is the Norwegian Agency for Development Cooperation. We function as an administrative and specialist body supporting the Ministry of Foreign Affairs and the Ministry of Climate and the Environment. Our work is grounded in achieving Norwegian development policy goals, promoting sustainable development, and is guided by the UN's Sustainable Development Goals (SDGs), climate goals, and human rights. We are based in Oslo and have around 320 dedicated employees.
 </p>
 
-Norad is the Norwegian Agency for Development Cooperation. We function as an administrative and specialist body supporting the Ministry of Foreign Affairs and the Ministry of Climate and the Environment.
 
-Our work is grounded in achieving Norwegian development policy goals, promoting sustainable development, and is guided by the UN's Sustainable Development Goals (SDGs), climate goals, and human rights. We are based in Oslo and have around 320 dedicated employees.
 
 ## Our focus: Digitalization for development
 
@@ -40,7 +41,7 @@ Some examples of our work include:
 * **`predicting-poverty`**: Exploring the use of satellite imagery and machine learning for poverty prediction.
 * **`norad-template-kotlin`**: A public template repository for Kotlin projects at Norad.
 
-Explore all our public repositories [here](https://github.com/orgs/Norad/repositories).
+Explore all our public repositories [here](https://github.com/orgs/noradno/repositories).
 
 ## Looking ahead
 
