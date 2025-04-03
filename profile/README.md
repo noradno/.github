@@ -1,13 +1,19 @@
 
-<h1 style="border-bottom: none; margin-bottom: -0.7rem;">Welcome to Norad on GitHub!</h1>
-<p style="font-size: 0.9em; margin-top: 0; font-style: italic; margin-bottom: 0;">The Norwegian Agency for Development Cooperation</p>
-<br>
-<img src="assets/norad_logo-green.png" alt="Norad Logo" width="250"/>
-<p style="margin-top: 1rem;">
-Norad is the Norwegian Agency for Development Cooperation. We function as an administrative and specialist body supporting the Ministry of Foreign Affairs and the Ministry of Climate and the Environment. Our work is grounded in achieving Norwegian development policy goals, promoting sustainable development, and is guided by the UN's Sustainable Development Goals (SDGs), climate goals, and human rights. We are based in Oslo and have around 320 dedicated employees.
+<p align="center">
+  <a href="https://www.norad.no/">
+    <img src="assets/norad_logo-green.png" alt="Norad Logo" width="300"/>
+  </a>
 </p>
 
+<p align="center"><i>The Norwegian Agency for Development Cooperation</i></p>
 
+<div id="badges" align="center">
+  <a href="https://www.facebook.com/Norad"><img src="https://img.shields.io/badge/Facebook-_-blue?style=social&logo=facebook" alt="Facebook badge"/></a>
+  <a href="https://www.youtube.com/norad"><img src="https://img.shields.io/badge/Youtube-_-_?style=social&logo=youtube" alt="Youtube badge"/></a>
+  <a href="https://x.com/noradno"><img src="https://img.shields.io/badge/X-_-blue?style=social&logo=x" alt="X badge"/></a>
+</div>
+<br>
+Norad is the Norwegian Agency for Development Cooperation. We function as an administrative and specialist body supporting the Ministry of Foreign Affairs and the Ministry of Climate and the Environment. Our work is grounded in achieving Norwegian development policy goals, promoting sustainable development, and is guided by the UN's Sustainable Development Goals (SDGs), climate goals, and human rights. We are based in Oslo and have around 320 dedicated employees.
 
 ## Our focus: Digitalization for development
 
