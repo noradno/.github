@@ -1,4 +1,3 @@
-
 <p align="center">
   <a href="https://www.norad.no/">
     <img src="assets/norad_logo-green.png" alt="Norad Logo" width="300"/>
@@ -40,7 +39,6 @@ The repositories you find here are part of our commitment to transparency and co
 
 Some examples of our work include:
 * **[global_public_goods](https://github.com/noradno/global_public_goods)**: Measuring ODA for provision of GPGs and Efforts to Tackle Consequences of Global Challenges
-* **[predicting-poverty](https://github.com/noradno/predicting-poverty)**: Exploring the use of satellite imagery and machine learning for poverty prediction.
 * **[noradplot](https://github.com/noradno/noradplot)**: An R package providing Norad's colour palette and plot style for ggplot2 graphics.
 
 Explore all our public repositories [here](https://github.com/orgs/noradno/repositories).
