@@ -40,7 +40,6 @@ The repositories you find here are part of our commitment to transparency and co
 
 Some examples of our work include:
 
-* **`noradstats`**: An R package to easily import Norwegian and international development finance data.
 * **`noradplot`**: An R package providing Norad's colour palette and plot style for ggplot2 graphics.
 * **`predicting-poverty`**: Exploring the use of satellite imagery and machine learning for poverty prediction.
 * **`norad-template-kotlin`**: A public template repository for Kotlin projects at Norad.
