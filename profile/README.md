@@ -39,17 +39,15 @@ Norway, alongside partners like the [Digital Public Goods Alliance (DPGA)](https
 The repositories you find here are part of our commitment to transparency and collaboration. All public repositories are considered open source.
 
 Some examples of our work include:
-
-* **`noradplot`**: An R package providing Norad's colour palette and plot style for ggplot2 graphics.
-* **`predicting-poverty`**: Exploring the use of satellite imagery and machine learning for poverty prediction.
-* **`norad-template-kotlin`**: A public template repository for Kotlin projects at Norad.
+* **[global_public_goods](https://github.com/noradno/global_public_goods)**: Measuring ODA for provision of GPGs and Efforts to Tackle Consequences of Global Challenges
+* **[predicting-poverty](https://github.com/noradno/predicting-poverty)**: Exploring the use of satellite imagery and machine learning for poverty prediction.
+* **[noradplot](https://github.com/noradno/noradplot)**: An R package providing Norad's colour palette and plot style for ggplot2 graphics.
 
 Explore all our public repositories [here](https://github.com/orgs/noradno/repositories).
 
 ## Looking ahead
 
 Norad is currently undergoing significant development, particularly in enhancing our digital strategy and capabilities. We are actively working to increase our contributions to the open-source community and the ecosystem of Digital Public Goods in the coming years. Stay tuned for more activity and new projects!
-
 
 ## Want to know more?
 - [Visit our official website](https://www.norad.no/)
