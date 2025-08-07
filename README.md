@@ -11,6 +11,7 @@ This repository (`.github`) holds configuration files and assets that apply acro
 * **`profile/`**: Contains the files for the public-facing organization profile.
     * `profile/README.md`: The main markdown file displayed on [github.com/noradno](https://github.com/noradno). **Note: This specific file is publicly visible.**
     * `profile/assets/`: Holds images (like the logo) used in the public profile README.
+* **`PULL_REQUEST_TEMPLATE.md`**: An organization wide template for creation of pull requests.
 
 ## Usage
 
