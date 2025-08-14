@@ -12,7 +12,7 @@ on:
         description: 'The .NET version to use'
         required: false
         type: string
-        default: '8.0.x'
+        default: '9.0.303'
       authenticate-to-nuget:
         description: 'Whether to authenticate to the private GitHub NuGet registry'
         required: false
