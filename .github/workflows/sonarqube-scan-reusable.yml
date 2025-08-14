@@ -1,4 +1,4 @@
-name: Analyze
+name: SonarQube Scan Reusable Workflow
 
 on:
   workflow_call:
@@ -8,13 +8,17 @@ on:
         required: false
         type: string
         default: '.'
+    secrets:
+      SONAR_TOKEN:
+        description: 'A token to authenticate with SonarQube'
+        required: true
 
 permissions:
   contents: read
 
 jobs:
   analyze:
-    name: Analyze .NET
+    name: Analyze code with SonarQube
     runs-on: ubuntu-latest
     defaults:
       run:
