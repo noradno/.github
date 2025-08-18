@@ -1,0 +1,79 @@
+name: Build and Test Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: 'The directory where the dotnet commands will be run'
+        required: false
+        type: string
+        default: '.'
+      dotnet-version:
+        description: 'The .NET version to use'
+        required: false
+        type: string
+        default: '9.0.303'
+      authenticate-to-nuget:
+        description: 'Whether to authenticate to the private GitHub NuGet registry'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build-and-test:
+    timeout-minutes: 30
+    name: Build and Test .NET
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET and authenticate to private NuGet registry
+        if: inputs.authenticate-to-nuget == true
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+          source-url: https://nuget.pkg.github.com/noradno/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up .NET
+        if: inputs.authenticate-to-nuget == false
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore, Build, and Test
+        run: |
+          dotnet restore
+          dotnet build --no-restore --configuration Release
+          dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory "TestResults"
+
+      - name: Set artifact name
+        id: set_name
+        run: echo "artifact_name=test-results-$(echo ${{ inputs.dotnet-version }} | sed 's/\./-/g')" >> $GITHUB_OUTPUT
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set_name.outputs.artifact_name }}
+          path: ${{ inputs.working-directory }}/TestResults/

@@ -1,0 +1,37 @@
+name: SonarQube Scan Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: 'The directory where the sonarqube scan will be run'
+        required: false
+        type: string
+        default: '.'
+    secrets:
+      SONAR_TOKEN:
+        description: 'A token to authenticate with SonarQube'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    timeout-minutes: 30
+    name: Analyze code with SonarQube
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
