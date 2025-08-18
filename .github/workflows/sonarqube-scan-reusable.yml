@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   analyze:
+    timeout-minutes: 30
     name: Analyze code with SonarQube
     runs-on: ubuntu-latest
     defaults:
