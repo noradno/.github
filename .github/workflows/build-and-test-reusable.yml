@@ -19,8 +19,8 @@ on:
         type: boolean
         default: true
     secrets:
-      GITHUB_TOKEN:
-        description: 'The GITHUB_TOKEN for authenticating to the private NuGet registry'
+      TOKEN:
+        description: 'Github Token for authenticating to the private NuGet registry'
         required: true
 
 permissions:
