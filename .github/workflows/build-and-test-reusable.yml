@@ -18,6 +18,10 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      TOKEN:
+        description: 'Github Token for authenticating to the private NuGet registry'
+        required: true
 
 permissions:
   contents: read
