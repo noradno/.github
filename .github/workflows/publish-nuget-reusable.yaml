@@ -63,4 +63,4 @@ jobs:
           NUGET_AUTH_TOKEN: ${{ secrets.nuget-api-key }}
           PACKAGE_NAME: ${{ inputs.package-name }}
         run: 
-          dotnet nuget push "./artifacts/${{ env.PACKAGE_NAME }}.*.nupkg" --source "https://api.nuget.org/v3/index.json" --skip-duplicate
+          dotnet nuget push "./artifacts/${{ env.PACKAGE_NAME }}.*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ secrets.nuget-api-key }} --skip-duplicate
