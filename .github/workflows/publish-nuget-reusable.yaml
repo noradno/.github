@@ -1,0 +1,66 @@
+name: Publish NuGet Package Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        required: false
+        type: string
+        default: '9.0.x'
+      package-name:
+        description: 'The name of the NuGet package'
+        required: true
+        type: string
+    secrets:
+      nuget-api-key:
+        description: 'The API key for NuGet.org'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build project
+        run: dotnet build --configuration Release
+
+      - name: Run tests
+        run: dotnet test --configuration Release --no-build
+
+      - name: Pack NuGet package
+        run: dotnet pack --configuration Release --output ./artifacts
+
+      - name: Upload NuGet package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: ./artifacts/*.nupkg
+
+      - name: Push to NuGet.org
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.nuget-api-key }}
+          PACKAGE_NAME: ${{ inputs.package-name }}
+        run: 
+          dotnet nuget push "./artifacts/${{ env.PACKAGE_NAME }}.*.nupkg" --source "https://api.nuget.org/v3/index.json" --skip-duplicate

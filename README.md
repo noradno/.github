@@ -16,6 +16,7 @@ This repository (`.github`) holds configuration files and assets that apply acro
     * `build-and-test-reusable.yml`: Builds and tests .NET projects.
     * `sonarqube-scan-reusable.yml`: Performs a SonarQube static code analysis.
     * `semantic-release-reusable.yaml`: Automates versioning and releases.
+    * `publish-nuget-reusable.yaml`: Builds, tests, and publishes a NuGet package.
 
 ## Usage
 
@@ -162,4 +163,44 @@ jobs:
     with:
       CSPROJ_PATH: ${{ vars.CSPROJ_PATH }}
       ref: ${{ github.ref }}
+```
+
+---
+
+### Publish NuGet Package
+
+**File:** `.github/workflows/publish-nuget-reusable.yaml`
+
+This workflow builds, tests, packs, and publishes a NuGet package to NuGet.org.
+
+#### Inputs
+
+| Name | Type | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `dotnet-version` | `string` | The .NET SDK version to use. | `'9.0.x'` |
+| `package-name` | `string` | **Required.** The name of the NuGet package being published. | |
+
+#### Secrets
+
+| Name | Required | Description |
+| :--- | :--- | :--- |
+| `nuget-api-key` | `true` | An API key for authenticating with the NuGet.org registry. |
+
+#### Example Usage
+
+```yaml
+# .github/workflows/publish.yml in the calling repository
+name: Publish NuGet Package
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    uses: noradno/.github/.github/workflows/publish-nuget-reusable.yaml@main
+    with:
+      package-name: 'MyAwesomePackage'
+    secrets:
+      nuget-api-key: ${{ secrets.NUGET_API_KEY }}
 ```
