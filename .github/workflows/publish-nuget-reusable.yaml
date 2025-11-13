@@ -11,11 +11,6 @@ on:
         description: 'The name of the NuGet package'
         required: true
         type: string
-      project_path:
-        description: 'The path where the readme should be moved'
-        required: false
-        type: string
-        default: '.'
     secrets:
       nuget-api-key:
         description: 'The API key for NuGet.org'
@@ -32,9 +27,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Finn README-fil
+        run: |
+          find . -type f -iname "README.md"
+
       - name: Move README to project folder
         run: |
-          cp README.md ${{ vars.PROJECT_PATH }}/README.md
+          cp ./README.md ${{ vars.PROJECT_PATH }}/README.md
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
