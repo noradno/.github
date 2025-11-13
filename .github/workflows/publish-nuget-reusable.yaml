@@ -11,6 +11,10 @@ on:
         description: 'The name of the NuGet package'
         required: true
         type: string
+      project_path:
+        description: 'The path to the project'
+        required: true
+        default: '.'
     secrets:
       nuget-api-key:
         description: 'The API key for NuGet.org'
