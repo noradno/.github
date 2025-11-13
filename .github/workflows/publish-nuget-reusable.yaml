@@ -11,7 +11,7 @@ on:
         description: 'The name of the NuGet package'
         required: true
         type: string
-      project_path:
+      project-path:
         description: 'The path to the project'
         required: true
         type: string
@@ -32,13 +32,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Finn README-fil
-        run: |
-          find . -type f -iname "README.md"
-
       - name: Move README to project folder
         run: |
-          cp ./README.md ${{ vars.PROJECT_PATH }}/README.md
+          cp ./README.md ${{ inputs.project-path }}/README.md
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
