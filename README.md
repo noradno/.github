@@ -128,11 +128,13 @@ For this workflow to function correctly, the calling repository **must** contain
 1.  `.releaserc.yaml`: The main configuration for releases on the `main` branch.
 2.  `.releaserc.prerelease.yaml`: The configuration for prereleases on feature, bugfix, or hotfix branches.
 
+
 #### Inputs
 
 | Name | Type | Description |
 | :--- | :--- | :--- |
 | `CSPROJ_PATH` | `string` | **Required.** The relative path to the `.csproj` file whose version will be updated. |
+| `PROJECT_PATH` | `string` | **Required.** The relative path to the folder containing your `.csproj` file (e.g. `src/Norad.GranMa.Core`). This is used as the destination for the README file. |
 | `ref` | `string` | **Required.** The Git ref (branch or tag) that triggered the workflow. This should be passed from the calling workflow. |
 
 #### Secrets
@@ -162,8 +164,11 @@ jobs:
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
     with:
       CSPROJ_PATH: ${{ vars.CSPROJ_PATH }}
+      PROJECT_PATH: ${{ vars.PROJECT_PATH }}
       ref: ${{ github.ref }}
 ```
+
+> **Note:** You must set both `CSPROJ_PATH` and `PROJECT_PATH` as repository variables in GitHub for the workflow to function correctly.
 
 ---
 
@@ -175,10 +180,36 @@ This workflow builds, tests, packs, and publishes a NuGet package to NuGet.org.
 
 #### Inputs
 
-| Name | Type | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `dotnet-version` | `string` | The .NET SDK version to use. | `'9.0.x'` |
-| `package-name` | `string` | **Required.** The name of the NuGet package being published. | |
+| Name           | Type    | Description                                         | Default   |
+| :------------- | :------ | :------------------------------------------------- | :-------- |
+| `dotnet-version` | `string` | The .NET SDK version to use.                        | `'9.0.x'`   |
+| `package-name`   | `string` | The name of the NuGet package being published.      |           |
+| `project-path`   | `string` | The path to the project (.csproj folder).           | `'.'`       |
+
+## How README.md is published
+
+The workflow will move the README.md file from the repository root to the folder specified by `project-path` before packing the NuGet package. This ensures the README is included in the published NuGet package.
+
+Example:
+
+```yaml
+jobs:
+  publish:
+    uses: noradno/.github/.github/workflows/publish-nuget-reusable.yaml@main
+    with:
+      package-name: 'Norad.GranMa.Core'
+      project-path: 'src/Norad.GranMa.Core'
+    secrets:
+      nuget-api-key: ${{ secrets.NUGET_API_KEY }}
+```
+
+The step in the workflow:
+```yaml
+- name: Move README to project folder
+  run: |
+    cp ./README.md ${{ inputs.project-path }}/README.md
+```
+This will copy README.md from the repo root to the project folder so it is picked up by NuGet packaging.
 
 #### Secrets
 
