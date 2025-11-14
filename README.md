@@ -128,7 +128,6 @@ For this workflow to function correctly, the calling repository **must** contain
 1.  `.releaserc.yaml`: The main configuration for releases on the `main` branch.
 2.  `.releaserc.prerelease.yaml`: The configuration for prereleases on feature, bugfix, or hotfix branches.
 
-
 #### Inputs
 
 | Name | Type | Description |
