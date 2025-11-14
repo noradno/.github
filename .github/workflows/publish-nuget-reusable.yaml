@@ -11,6 +11,11 @@ on:
         description: 'The name of the NuGet package'
         required: true
         type: string
+      project-path:
+        description: 'The path to the project'
+        required: true
+        type: string
+        default: '.'
     secrets:
       nuget-api-key:
         description: 'The API key for NuGet.org'
@@ -26,6 +31,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Move README to project folder
+        run: |
+          cp ./README.md ${{ inputs.project-path }}/README.md
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
