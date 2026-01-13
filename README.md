@@ -16,7 +16,9 @@ This repository (`.github`) holds configuration files and assets that apply acro
     * `build-and-test-reusable.yml`: Builds and tests .NET projects.
     * `sonarqube-scan-reusable.yml`: Performs a SonarQube static code analysis.
     * `semantic-release-reusable.yaml`: Automates versioning and releases.
-    * `publish-nuget-reusable.yaml`: Builds, tests, and publishes a NuGet package.
+    * `publish-nuget-reusable.yaml`: Builds, tests, and publishes a NuGet 
+    package.
+    * `publish-github-packages-reusable.yaml`: Builds, tests, and publishes a package to GitHub package registry.
 
 ## Usage
 
@@ -233,4 +235,41 @@ jobs:
       package-name: 'MyAwesomePackage'
     secrets:
       nuget-api-key: ${{ secrets.NUGET_API_KEY }}
+```
+### Publish to GitHub Packages
+
+**File:** `.github/workflows/publish-github-packages-reusable.yaml`
+
+This workflow builds, tests, packs, and publishes a NuGet package to the GitHub Package Registry.
+
+#### Inputs
+
+| Name             | Type    | Description                                         | Default   |
+| :--------------- | :------ | :------------------------------------------------- | :-------- |
+| `dotnet-version` | `string` | The .NET SDK version to use.                        | `'9.0.x'` |
+| `package-name`   | `string` | The name of the NuGet package being published.      |           |
+| `project-path`   | `string` | The path to the project (.csproj folder).           | `'.'`     |
+
+#### Secrets
+
+| Name          | Required | Description                                               |
+| :------------ | :------- | :-------------------------------------------------------- |
+| `GITHUB_TOKEN`| `true`   | GitHub token for authenticating with the GitHub registry. |
+
+#### Example Usage
+
+```yaml
+# .github/workflows/publish-github-package.yml in the calling repository
+name: Publish GitHub Package
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    uses: noradno/.github/.github/workflows/publish-github-packages-reusable.yaml@main
+    with:
+      package-name: 'MyAwesomePackage'
+      project-path: 'src/MyAwesomePackage'
 ```
