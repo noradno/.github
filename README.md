@@ -247,7 +247,6 @@ This workflow builds, tests, packs, and publishes a NuGet package to the GitHub 
 | :--------------- | :------ | :------------------------------------------------- | :-------- |
 | `dotnet-version` | `string` | The .NET SDK version to use.                        | `'9.0.x'` |
 | `package-name`   | `string` | The name of the NuGet package being published.      |           |
-| `project-path`   | `string` | The path to the project (.csproj folder).           | `'.'`     |
 
 
 #### Secrets
