@@ -250,6 +250,9 @@ This workflow builds, tests, packs, and publishes a NuGet package to the GitHub 
 | `project-path`   | `string` | The path to the project (.csproj folder).           | `'.'`     |
 
 
+#### Secrets
+This workflow uses the `GITHUB_TOKEN` secret, which is automatically provided by GitHub Actions and is used to authenticate with the GitHub Package Registry.
+
 #### Example Usage
 
 ```yaml
