@@ -27,9 +27,6 @@ on:
       TOKEN:
         description: 'Github Token for authenticating to the private NuGet registry'
         required: true
-      SQL_CONNECTION_STRING:
-        description: 'SQL Connection String for the database'
-        required: true
 
 env:
   PUBLISH_DIRECTORY: ${{ inputs.working-directory }}/publish
