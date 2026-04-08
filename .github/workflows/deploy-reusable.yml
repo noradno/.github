@@ -23,6 +23,10 @@ on:
         required: false
         type: boolean
         default: false
+      environment-name:
+        description: 'The name of the environment to deploy to'
+        required: true
+        type: string
     secrets:
       TOKEN:
         description: 'Github Token for authenticating to the private NuGet registry'
@@ -38,10 +42,10 @@ permissions:
 
 jobs:
   build-and-deploy:
-    name: Build and Deploy to ${{ vars.ENVIRONMENT_NAME }}
+    name: Build and Deploy to ${{ inputs.environment-name }}
     runs-on: norad-gh-runner-granma
     environment:
-      name: ${{ vars.ENVIRONMENT_NAME }}
+      name: ${{ inputs.environment-name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
