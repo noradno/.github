@@ -96,7 +96,7 @@ jobs:
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
-            --settings "ConnectionStrings__DefaultConnection=${{ secrets.SQL_CONNECTION_STRING }}"
+            --settings "ConnectionStrings__DefaultConnection=${{ vars.SQL_CONNECTION_STRING }}"
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
