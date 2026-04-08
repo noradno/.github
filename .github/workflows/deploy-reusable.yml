@@ -123,7 +123,7 @@ jobs:
         uses: azure/webapps-deploy@657f0700ea5214d56a0400d8ac5e8023c963d25d # v3.0.2
         with:
           app-name: ${{ vars.APP_NAME }}
-          package: $PUBLISH_DIRECTORY
+          package: ${{ env.PUBLISH_DIRECTORY }}
 
       - name: Clear database reset flag
         if: inputs.reset_database == true
