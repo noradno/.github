@@ -76,7 +76,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Publish
-        run: dotnet publish src/Presentation/Presentation.csproj --configuration Release --output ${{ env.PUBLISH_DIRECTORY }}
+        run: dotnet publish src/Presentation/Presentation.csproj --configuration Release --output $PUBLISH_DIRECTORY
 
       - name: Azure Login (OIDC)
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.4.0
@@ -97,7 +97,7 @@ jobs:
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
-            --settings "ConnectionStrings__DefaultConnection=${{ vars.SQL_CONNECTION_STRING }}"
+            --settings "ConnectionStrings__DefaultConnection='${{ vars.SQL_CONNECTION_STRING }}'"
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
@@ -123,7 +123,7 @@ jobs:
         uses: azure/webapps-deploy@657f0700ea5214d56a0400d8ac5e8023c963d25d # v3.0.2
         with:
           app-name: ${{ vars.APP_NAME }}
-          package: ${{ env.PUBLISH_DIRECTORY }}
+          package: $PUBLISH_DIRECTORY
 
       - name: Clear database reset flag
         if: inputs.reset_database == true
