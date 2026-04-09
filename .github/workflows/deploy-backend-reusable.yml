@@ -1,4 +1,4 @@
-name: Deploy Reusable Workflow
+name: Deploy Backend Reusable Workflow
 
 on:
   workflow_call:
@@ -42,7 +42,7 @@ permissions:
 
 jobs:
   build-and-deploy:
-    name: Build and Deploy to ${{ inputs.environment-name }}
+    name: Deploy to ${{ inputs.environment-name }}
     runs-on: norad-gh-runner-granma
     environment:
       name: ${{ inputs.environment-name }}

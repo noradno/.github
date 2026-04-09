@@ -1,0 +1,102 @@
+name: Deploy Frontend Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      environment-name:
+        description: 'The name of the environment to deploy to'
+        required: true
+        type: string
+
+# Pass secrets as environment variables to not expose them in the workflow run logs
+env:
+  AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+  AGREEMENT_API_SUBSCRIPTION_KEY: ${{ secrets.AGREEMENT_API_SUBSCRIPTION_KEY }}
+  PARTNER_API_SUBSCRIPTION_KEY: ${{ secrets.PARTNER_API_SUBSCRIPTION_KEY }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: Deploy to ${{ inputs.environment-name }}
+    runs-on: norad-gh-runner-granma
+    environment:
+      name: ${{ inputs.environment-name }}
+      url: ${{ vars.APP_URL }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build application
+        env:
+          NODE_ENV: ${{ vars.NODE_ENV }}
+          NEXT_PUBLIC_ENV: ${{ vars.NEXT_PUBLIC_ENV }}
+          NEXT_PUBLIC_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+          AUTH_PROVIDER: ${{ vars.AUTH_PROVIDER }}
+          AGREEMENTS_API_URL: ${{ vars.AGREEMENTS_API_URL }}
+          PARTNERS_API_URL: ${{ vars.PARTNERS_API_URL }}
+          USERS_API_URL: ${{ vars.USERS_API_URL }}
+          REFERENCE_API_URL: ${{ vars.REFERENCE_API_URL }}
+        run: npm run build
+
+      - name: Prepare Standalone Bundle
+        run: |
+          # Copy the 'public' folder to the standalone root
+          cp -r public .next/standalone/
+          
+          # Copy the built '.next/static' folder to the standalone .next directory
+          cp -r .next/static .next/standalone/.next/
+
+      - name: Create Release Zip
+        run: |
+          cd .next/standalone
+          zip -r ../../release.zip .
+
+      - name: Check Zip Size
+        run: ls -lh release.zip
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.4.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure App Service settings
+        run: |
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings \
+            AUTH_TRUST_HOST="true" \
+            AUTH_URL=${{ vars.AUTH_URL }} \
+            NEXT_PUBLIC_ENV=${{ vars.NEXT_PUBLIC_ENV }} \
+            AUTH_PROVIDER=${{ vars.AUTH_PROVIDER }} \
+            AGREEMENTS_API_URL=${{ vars.AGREEMENTS_API_URL }} \
+            PARTNERS_API_URL=${{ vars.PARTNERS_API_URL }} \
+            USERS_API_URL=${{ vars.USERS_API_URL }} \
+            REFERENCE_API_URL=${{ vars.REFERENCE_API_URL }}
+
+      - name: Configure App Service startup command
+        run: |
+          az webapp config set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --startup-file "node server.js"
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@657f0700ea5214d56a0400d8ac5e8023c963d25d # v3.0.2
+        with:
+          app-name: ${{ vars.APP_NAME }}
+          package: .next/standalone
