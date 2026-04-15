@@ -7,6 +7,16 @@ on:
         description: 'The name of the environment to deploy to'
         required: true
         type: string
+    secrets:
+      AUTH_SECRET:
+        description: 'Secret used for NEXT Auth authentication'
+        required: true
+      AGREEMENT_API_SUBSCRIPTION_KEY:
+        description: 'APIM subscription key for the Agreement API'
+        required: true
+      PARTNER_API_SUBSCRIPTION_KEY:
+        description: 'APIM subscription key for the Partner API'
+        required: true
 
 # Pass secrets as environment variables to not expose them in the workflow run logs
 env:
