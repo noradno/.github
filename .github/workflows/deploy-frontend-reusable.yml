@@ -95,7 +95,10 @@ jobs:
             AUTH_TRUST_HOST="true" \
             AUTH_URL=${{ vars.AUTH_URL }} \
             NEXT_PUBLIC_ENV=${{ vars.NEXT_PUBLIC_ENV }} \
+            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }} \
+            NODE_ENV=${{ vars.NODE_ENV }} \
             AUTH_PROVIDER=${{ vars.AUTH_PROVIDER }} \
+            AUTH_SECRET=${{ secrets.AUTH_SECRET }} \
             AGREEMENTS_API_URL=${{ vars.AGREEMENTS_API_URL }} \
             PARTNERS_API_URL=${{ vars.PARTNERS_API_URL }} \
             USERS_API_URL=${{ vars.USERS_API_URL }} \
