@@ -90,7 +90,7 @@ jobs:
           az webapp config set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
-            --linux-fx-version "DOTNETCORE|10.0"
+            --linux-fx-version "DOTNETCORE|9.0"
 
       - name: Configure App Settings
         run: |
