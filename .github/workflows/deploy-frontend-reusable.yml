@@ -17,12 +17,16 @@ on:
       PARTNER_API_SUBSCRIPTION_KEY:
         description: 'APIM subscription key for the Partner API'
         required: true
+      USER_API_SUBSCRIPTION_KEY:
+        description: 'APIM subscription key for the User API'
+        required: true
 
 # Pass secrets as environment variables to not expose them in the workflow run logs
 env:
   AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
   AGREEMENT_API_SUBSCRIPTION_KEY: ${{ secrets.AGREEMENT_API_SUBSCRIPTION_KEY }}
   PARTNER_API_SUBSCRIPTION_KEY: ${{ secrets.PARTNER_API_SUBSCRIPTION_KEY }}
+  USER_API_SUBSCRIPTION_KEY: ${{ secrets.USER_API_SUBSCRIPTION_KEY }}
 
 permissions:
   id-token: write
@@ -80,7 +84,6 @@ jobs:
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
             --settings \
-            AUTH_TRUST_HOST="true" \
             AUTH_URL=${{ vars.AUTH_URL }} \
             NEXT_PUBLIC_ENV=${{ vars.NEXT_PUBLIC_ENV }} \
             NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }} \
@@ -92,7 +95,8 @@ jobs:
             USERS_API_URL=${{ vars.USERS_API_URL }} \
             REFERENCE_API_URL=${{ vars.REFERENCE_API_URL }} \
             AGREEMENT_API_SUBSCRIPTION_KEY="${{ secrets.AGREEMENT_API_SUBSCRIPTION_KEY }}" \
-            PARTNER_API_SUBSCRIPTION_KEY="${{ secrets.PARTNER_API_SUBSCRIPTION_KEY }}"
+            PARTNER_API_SUBSCRIPTION_KEY="${{ secrets.PARTNER_API_SUBSCRIPTION_KEY }}" \
+            USER_API_SUBSCRIPTION_KEY="${{ secrets.USER_API_SUBSCRIPTION_KEY }}"
 
       - name: Configure App Service startup command
         run: |
