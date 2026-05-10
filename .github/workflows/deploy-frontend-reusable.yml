@@ -111,7 +111,7 @@ jobs:
           az webapp config set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
-            --startup-file "node server.js"
+            --startup-file "npm start"
 
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@657f0700ea5214d56a0400d8ac5e8023c963d25d # v3.0.2
