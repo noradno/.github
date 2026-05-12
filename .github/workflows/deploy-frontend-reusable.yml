@@ -84,12 +84,13 @@ jobs:
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
             --settings \
-            AUTH_URL=${{ vars.AUTH_URL }} \
+            ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }} \
             NEXT_PUBLIC_ENV=${{ vars.NEXT_PUBLIC_ENV }} \
             NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }} \
             NODE_ENV=${{ vars.NODE_ENV }} \
             AUTH_PROVIDER=${{ vars.AUTH_PROVIDER }} \
             AUTH_SECRET=${{ secrets.AUTH_SECRET }} \
+            AUTH_URL=${{ vars.AUTH_URL }} \
             AGREEMENTS_API_URL=${{ vars.AGREEMENTS_API_URL }} \
             PARTNERS_API_URL=${{ vars.PARTNERS_API_URL }} \
             USERS_API_URL=${{ vars.USERS_API_URL }} \
