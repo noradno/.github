@@ -32,10 +32,6 @@ on:
         description: 'The name of the environment to deploy to'
         required: true
         type: string
-    secrets:
-      TOKEN:
-        description: 'Github Token for authenticating to the private NuGet registry'
-        required: true
 
 env:
   PUBLISH_DIRECTORY: publish
@@ -70,7 +66,7 @@ jobs:
           dotnet-version: ${{ inputs.dotnet-build-version }}
           source-url: https://nuget.pkg.github.com/noradno/index.json
         env:
-          NUGET_AUTH_TOKEN: ${{ secrets.TOKEN }}
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up .NET
         if: inputs.authenticate-to-nuget == false
