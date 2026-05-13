@@ -36,9 +36,15 @@ jobs:
   build-and-deploy:
     name: Deploy to ${{ inputs.environment-name }}
     runs-on: norad-gh-runner-granma
+    timeout-minutes: 30
     environment:
       name: ${{ inputs.environment-name }}
       url: ${{ vars.APP_URL }}
+    # Make sure that two deployments of the same app to the same environment don't run at the same time, 
+    # to avoid conflicts in updating Azure App Service app settings
+    concurrency:
+      group: deploy-${{ vars.APP_NAME }}-${{ inputs.environment-name }}
+      cancel-in-progress: false
     steps:
       - name: Checkout code
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0

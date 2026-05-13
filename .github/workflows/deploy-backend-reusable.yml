@@ -45,10 +45,13 @@ jobs:
   build-and-deploy:
     name: Deploy to ${{ inputs.environment-name }}
     runs-on: norad-gh-runner-granma
+    timeout-minutes: 30
     environment:
       name: ${{ inputs.environment-name }}
+    # Make sure that two deployments of the same app to the same environment don't run at the same time, 
+    # to avoid conflicts in updating Azure App Service app settings
     concurrency:
-      group: deploy-${{ inputs.environment-name }}
+      group: deploy-${{ vars.APP_NAME }}-${{ inputs.environment-name }}
       cancel-in-progress: false
     defaults:
       run:
