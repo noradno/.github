@@ -33,7 +33,7 @@ on:
         required: true
 
 env:
-  PUBLISH_DIRECTORY: ${{ inputs.working-directory }}/publish
+  PUBLISH_DIRECTORY: publish
 
 permissions:
   id-token: write
@@ -46,6 +46,9 @@ jobs:
     runs-on: norad-gh-runner-granma
     environment:
       name: ${{ inputs.environment-name }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -76,7 +79,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Publish
-        run: dotnet publish src/Presentation/Presentation.csproj --configuration Release --output $PUBLISH_DIRECTORY
+        run: dotnet publish src/Presentation/Presentation.csproj --configuration Release --output ${{ env.PUBLISH_DIRECTORY }}
 
       - name: Azure Login (OIDC)
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.4.0
