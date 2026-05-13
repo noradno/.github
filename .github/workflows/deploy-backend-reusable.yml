@@ -8,11 +8,16 @@ on:
         required: false
         type: string
         default: '.'
-      dotnet-version:
-        description: 'The .NET version to use'
+      dotnet-build-version:
+        description: 'The .NET version to use during the build process'
         required: false
         type: string
-        default: '9.0.303'
+        default: '10.0.300'
+      dotnet-runtime-version:
+        description: 'The .NET version to use for the app runtime in Azure App Service'
+        required: false
+        type: string
+        default: 'DOTNETCORE|10.0'
       authenticate-to-nuget:
         description: 'Whether to authenticate to the private GitHub NuGet registry'
         required: false
@@ -59,7 +64,7 @@ jobs:
         if: inputs.authenticate-to-nuget == true
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ inputs.dotnet-version }}
+          dotnet-version: ${{ inputs.dotnet-build-version }}
           source-url: https://nuget.pkg.github.com/noradno/index.json
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.TOKEN }}
@@ -68,7 +73,7 @@ jobs:
         if: inputs.authenticate-to-nuget == false
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ inputs.dotnet-version }}
+          dotnet-version: ${{ inputs.dotnet-build-version }}
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -89,11 +94,13 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Configure App Service runtime
+        env:
+          DOTNET_RUNTIME_VERSION: ${{ inputs.dotnet-runtime-version }}
         run: |
           az webapp config set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
-            --linux-fx-version "DOTNETCORE|10.0"
+            --linux-fx-version "$DOTNET_RUNTIME_VERSION"
 
       - name: Configure App Settings
         run: |
