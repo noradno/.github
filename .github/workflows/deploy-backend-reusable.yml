@@ -51,6 +51,9 @@ jobs:
     runs-on: norad-gh-runner-granma
     environment:
       name: ${{ inputs.environment-name }}
+    concurrency:
+      group: deploy-${{ inputs.environment-name }}
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
