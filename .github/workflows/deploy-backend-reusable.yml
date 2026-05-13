@@ -136,7 +136,9 @@ jobs:
           package: ${{ env.PUBLISH_DIRECTORY }}
 
       - name: Clear database reset flag
-        if: inputs.reset_database == true
+        # Always run this step, even if the deployment is cancelled
+        # Source: https://stackoverflow.com/questions/58858429/how-to-run-a-github-actions-step-even-if-the-previous-step-fails-while-still-f
+        if: inputs.reset_database == true && always()
         run: |
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
