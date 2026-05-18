@@ -21,13 +21,6 @@ on:
         description: 'APIM subscription key for the User API'
         required: true
 
-# Pass secrets as environment variables to not expose them in the workflow run logs
-env:
-  AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-  AGREEMENT_API_SUBSCRIPTION_KEY: ${{ secrets.AGREEMENT_API_SUBSCRIPTION_KEY }}
-  PARTNER_API_SUBSCRIPTION_KEY: ${{ secrets.PARTNER_API_SUBSCRIPTION_KEY }}
-  USER_API_SUBSCRIPTION_KEY: ${{ secrets.USER_API_SUBSCRIPTION_KEY }}
-
 permissions:
   id-token: write
   contents: read
