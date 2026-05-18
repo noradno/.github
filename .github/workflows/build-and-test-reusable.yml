@@ -8,7 +8,7 @@ on:
         required: false
         type: string
         default: '.'
-      dotnet-version:
+      dotnet-build-version:
         description: 'The .NET version to use'
         required: false
         type: string
@@ -42,7 +42,7 @@ jobs:
         if: inputs.authenticate-to-nuget == true
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ inputs.dotnet-version }}
+          dotnet-version: ${{ inputs.dotnet-build-version }}
           source-url: https://nuget.pkg.github.com/noradno/index.json
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,7 +51,7 @@ jobs:
         if: inputs.authenticate-to-nuget == false
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ inputs.dotnet-version }}
+          dotnet-version: ${{ inputs.dotnet-build-version }}
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -69,7 +69,9 @@ jobs:
 
       - name: Set artifact name
         id: set_name
-        run: echo "artifact_name=test-results-$(echo ${{ inputs.dotnet-version }} | sed 's/\./-/g')" >> $GITHUB_OUTPUT
+        env:
+          DOTNET_BUILD_VERSION: ${{ inputs.dotnet-build-version }}
+        run: echo "artifact_name=test-results-$(echo "$DOTNET_BUILD_VERSION" | sed 's/\./-/g')" >> $GITHUB_OUTPUT
 
       - name: Upload test results
         if: always()
