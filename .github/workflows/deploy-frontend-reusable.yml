@@ -1,0 +1,114 @@
+name: Deploy Frontend Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      environment-name:
+        description: 'The name of the environment to deploy to'
+        required: true
+        type: string
+    secrets:
+      AUTH_SECRET:
+        description: 'Secret used for NEXT Auth authentication'
+        required: true
+      AGREEMENT_API_SUBSCRIPTION_KEY:
+        description: 'APIM subscription key for the Agreement API'
+        required: true
+      PARTNER_API_SUBSCRIPTION_KEY:
+        description: 'APIM subscription key for the Partner API'
+        required: true
+      USER_API_SUBSCRIPTION_KEY:
+        description: 'APIM subscription key for the User API'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: Deploy to ${{ inputs.environment-name }}
+    runs-on: norad-gh-runner-granma
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment-name }}
+      url: ${{ vars.APP_URL }}
+    # Make sure that two deployments of the same app to the same environment don't run at the same time, 
+    # to avoid conflicts in updating Azure App Service app settings
+    concurrency:
+      group: deploy-${{ vars.APP_NAME }}-${{ inputs.environment-name }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build application
+        run: npm run build
+
+      - name: Prepare Standalone Bundle
+        run: |
+          # Copy the 'public' folder to the standalone root
+          cp -r public .next/standalone/
+          
+          # Copy the built '.next/static' folder to the standalone .next directory
+          cp -r .next/static .next/standalone/.next/
+
+      - name: Create Release Zip
+        run: |
+          cd .next/standalone
+          zip -r ../../release.zip .
+
+      - name: Check Zip Size
+        run: ls -lh release.zip
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure App Service settings
+        run: |
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings \
+            ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }} \
+            NEXT_PUBLIC_ENV=${{ vars.NEXT_PUBLIC_ENV }} \
+            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }} \
+            NODE_ENV=${{ vars.NODE_ENV }} \
+            AUTH_PROVIDER=${{ vars.AUTH_PROVIDER }} \
+            AUTH_SECRET="${{ secrets.AUTH_SECRET }}" \
+            AUTH_URL=${{ vars.AUTH_URL }} \
+            AGREEMENTS_API_URL=${{ vars.AGREEMENTS_API_URL }} \
+            PARTNERS_API_URL=${{ vars.PARTNERS_API_URL }} \
+            USERS_API_URL=${{ vars.USERS_API_URL }} \
+            REFERENCE_API_URL=${{ vars.REFERENCE_API_URL }} \
+            AGREEMENT_API_SUBSCRIPTION_KEY=${{ secrets.AGREEMENT_API_SUBSCRIPTION_KEY }} \
+            PARTNER_API_SUBSCRIPTION_KEY=${{ secrets.PARTNER_API_SUBSCRIPTION_KEY }} \
+            USER_API_SUBSCRIPTION_KEY=${{ secrets.USER_API_SUBSCRIPTION_KEY }}
+
+      - name: Configure App Service startup command
+        run: |
+          az webapp config set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --startup-file "npm start"
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
+        with:
+          app-name: ${{ vars.APP_NAME }}
+          package: release.zip

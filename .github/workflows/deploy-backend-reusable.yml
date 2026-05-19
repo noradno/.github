@@ -1,0 +1,132 @@
+name: Deploy Backend Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-build-version:
+        description: 'The .NET version to use during the build process'
+        required: false
+        type: string
+        default: '10.0.300'
+      dotnet-runtime-version:
+        description: 'The .NET version to use for the app runtime in Azure App Service'
+        required: false
+        type: string
+        default: 'DOTNETCORE|10.0'
+      authenticate-to-nuget:
+        description: 'Whether to authenticate to the private GitHub NuGet registry'
+        required: false
+        type: boolean
+        default: true
+      reset_database:
+        description: 'Drop and recreate database from scratch'
+        required: false
+        type: boolean
+        default: false
+      environment-name:
+        description: 'The name of the environment to deploy to'
+        required: true
+        type: string
+
+env:
+  PUBLISH_DIRECTORY: publish
+
+permissions:
+  id-token: write
+  contents: read
+  packages: read
+
+jobs:
+  build-and-deploy:
+    name: Deploy to ${{ inputs.environment-name }}
+    runs-on: norad-gh-runner-granma
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment-name }}
+    # Make sure that two deployments of the same app to the same environment don't run at the same time, 
+    # to avoid conflicts in updating Azure App Service app settings
+    concurrency:
+      group: deploy-${{ vars.APP_NAME }}-${{ inputs.environment-name }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: Set up .NET and authenticate to private NuGet registry
+        if: inputs.authenticate-to-nuget == true
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: ${{ inputs.dotnet-build-version }}
+          source-url: https://nuget.pkg.github.com/noradno/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up .NET
+        if: inputs.authenticate-to-nuget == false
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: ${{ inputs.dotnet-build-version }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Publish
+        run: dotnet publish src/Presentation/Presentation.csproj --configuration Release --output ${{ env.PUBLISH_DIRECTORY }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure App Service runtime
+        env:
+          DOTNET_RUNTIME_VERSION: ${{ inputs.dotnet-runtime-version }}
+        run: |
+          az webapp config set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --linux-fx-version "$DOTNET_RUNTIME_VERSION"
+
+      - name: Configure App Settings
+        run: |
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings \
+            "ConnectionStrings__DefaultConnection=${{ vars.SQL_CONNECTION_STRING }}" \
+            "ServiceBus__FullyQualifiedNamespace=${{ vars.SERVICE_BUS_NAMESPACE }}" \
+            "ServiceBus__TopicName=${{ vars.SERVICE_BUS_TOPIC }}" \
+            "ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT }}"
+
+      - name: Enable database reset flag
+        if: inputs.reset_database == true
+        run: |
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings "Database__Reset=true"
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
+        with:
+          app-name: ${{ vars.APP_NAME }}
+          package: ${{ env.PUBLISH_DIRECTORY }}
+
+      - name: Clear database reset flag
+        # Always run this step, even if the deployment is cancelled
+        # Source: https://stackoverflow.com/questions/58858429/how-to-run-a-github-actions-step-even-if-the-previous-step-fails-while-still-f
+        if: inputs.reset_database == true && always()
+        run: |
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings "Database__Reset=false"
