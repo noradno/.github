@@ -89,8 +89,10 @@ jobs:
             NEXT_PUBLIC_ENV=${{ vars.NEXT_PUBLIC_ENV }} \
             NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }} \
             NODE_ENV=${{ vars.NODE_ENV }} \
+            AUTH_DEBUG=${{ vars.AUTH_DEBUG }} \
             AUTH_PROVIDER=${{ vars.AUTH_PROVIDER }} \
             AUTH_SECRET="${{ secrets.AUTH_SECRET }}" \
+            AUTH_TRUST_HOST=${{ vars.AUTH_TRUST_HOST }} \
             AUTH_URL=${{ vars.AUTH_URL }} \
             AGREEMENTS_API_URL=${{ vars.AGREEMENTS_API_URL }} \
             PARTNERS_API_URL=${{ vars.PARTNERS_API_URL }} \
