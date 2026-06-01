@@ -86,7 +86,7 @@ jobs:
             --name ${{ vars.APP_NAME }} \
             --settings \
             ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }} \
-            NEXT_PUBLIC_ENV=${{ vars.NEXT_PUBLIC_ENV }} \
+            APP_ENVIRONMENT=${{ vars.APP_ENVIRONMENT }} \
             NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }} \
             NODE_ENV=${{ vars.NODE_ENV }} \
             AUTH_DEBUG=${{ vars.AUTH_DEBUG }} \
