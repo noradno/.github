@@ -60,7 +60,7 @@ jobs:
         run: dotnet restore
 
       - name: CSharpier format check
-        run: ./csharpier/csharpier-check.sh --no-restore
+        run: ./csharpier/csharpier.sh --no-restore --mode=check
 
       - name: Build
         run: dotnet build --no-restore --configuration ${{ env.CONFIGURATION }}
