@@ -18,6 +18,10 @@ permissions:
   contents: read
   packages: read
 
+env:
+  TEST_RESULTS_DIRECTORY: "TestResults"
+  CONFIGURATION: "Release"
+
 jobs:
   build-and-test:
     timeout-minutes: 30
@@ -52,11 +56,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Restore, Build, and Test
-        run: |
-          dotnet restore
-          dotnet build --no-restore --configuration Release
-          dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory "TestResults"
+      - name: Restore
+        run: dotnet restore
+
+      - name: CSharpier format check
+        run: ./csharpier/csharpier-check.sh --no-restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration ${{ env.CONFIGURATION }}
+
+      - name: Test
+        run: dotnet test --no-build --configuration ${{ env.CONFIGURATION }} --collect:"XPlat Code Coverage" --results-directory ${{ env.TEST_RESULTS_DIRECTORY }}
 
       - name: Set artifact name
         id: set_name
@@ -69,4 +79,4 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.set_name.outputs.artifact_name }}
-          path: TestResults/
+          path: ${{ env.TEST_RESULTS_DIRECTORY }}
