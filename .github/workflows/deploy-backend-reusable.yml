@@ -104,7 +104,7 @@ jobs:
             --settings \
             "ConnectionStrings__DefaultConnection=${{ vars.SQL_CONNECTION_STRING }}" \
             "Serilog__Properties__Environment=${{ vars.ENVIRONMENT }}" \
-            "Serilog__WriteTo__0__Args__ConnectionString=${{ vars.APPLICATIONINSIGHTS_CONNECTIONSTRING }}" \
+            "Serilog__WriteTo__0__Args__ConnectionString=${{ secrets.APPLICATIONINSIGHTS_CONNECTIONSTRING }}" \
             "ServiceBus__FullyQualifiedNamespace=${{ vars.SERVICE_BUS_NAMESPACE }}" \
             "ServiceBus__TopicName=${{ vars.SERVICE_BUS_TOPIC }}" \
             "ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT }}"
