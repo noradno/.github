@@ -20,6 +20,9 @@ on:
       USER_API_SUBSCRIPTION_KEY:
         description: 'APIM subscription key for the User API'
         required: true
+      APPLICATIONINSIGHTS_CONNECTIONSTRING:
+        description: 'Secret used for Azure Application Insights connection'
+        required: true
 
 permissions:
   id-token: write
