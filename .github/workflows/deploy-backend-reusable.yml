@@ -27,6 +27,10 @@ on:
         description: 'The name of the environment to deploy to'
         required: true
         type: string
+    secrets:
+      APPLICATIONINSIGHTS_CONNECTIONSTRING:
+        description: 'Secret used for Azure Application Insights authentication'
+        required: true
 
 env:
   PUBLISH_DIRECTORY: publish
