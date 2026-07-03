@@ -29,7 +29,7 @@ on:
         type: string
     secrets:
       APPLICATIONINSIGHTS_CONNECTIONSTRING:
-        description: 'Secret used for Azure Application Insights authentication'
+        description: 'Secret used for Azure Application Insights connection'
         required: true
 
 env:
