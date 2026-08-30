@@ -37,6 +37,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
+      # Packages published by other noradno repos (e.g. Norad.GranMa.Core) live on GitHub Packages.
+      # A bare `dotnet restore` has no credentials for that feed and fails with 401, so authenticate the
+      # source with the job token first. Repos that already declare the source in nuget.config get it
+      # updated in place; repos without one get it added. The consuming repo must also be granted
+      # read access on each package it restores (package settings -> Manage Actions access).
+      - name: Authenticate GitHub Packages NuGet source
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if dotnet nuget list source | grep -q "github-noradno"; then
+            dotnet nuget update source github-noradno --username "${{ github.actor }}" --password "$NUGET_AUTH_TOKEN" --store-password-in-clear-text
+          else
+            dotnet nuget add source "https://nuget.pkg.github.com/noradno/index.json" --name github-noradno --username "${{ github.actor }}" --password "$NUGET_AUTH_TOKEN" --store-password-in-clear-text
+          fi
+
       - name: Restore dependencies
         run: dotnet restore
 
