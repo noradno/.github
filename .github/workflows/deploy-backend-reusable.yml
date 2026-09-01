@@ -105,6 +105,7 @@ jobs:
             "ConnectionStrings__DefaultConnection=${{ vars.SQL_CONNECTION_STRING }}" \
             "ServiceBus__FullyQualifiedNamespace=${{ vars.SERVICE_BUS_NAMESPACE }}" \
             "ServiceBus__TopicName=${{ vars.SERVICE_BUS_TOPIC }}" \
+            "ServiceBus__SubscriptionName=${{ vars.SERVICE_BUS_SUBSCRIPTION }}" \
             "ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT }}"
 
       - name: Enable database reset flag
