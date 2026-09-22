@@ -128,3 +128,6 @@ jobs:
         with:
           app-name: ${{ vars.APP_NAME }}
           package: release.zip
+          clean: true
+          restart: true
+          type: zip
