@@ -129,6 +129,8 @@ jobs:
         with:
           app-name: ${{ vars.APP_NAME }}
           package: ${{ env.PUBLISH_DIRECTORY }}
+          clean: true
+          restart: true
 
       - name: Clear database reset flag
         # Always run this step, even if the deployment is cancelled
