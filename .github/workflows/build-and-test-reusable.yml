@@ -58,6 +58,8 @@ jobs:
 
       - name: Restore
         run: dotnet restore
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: CSharpier format check
         run: ./csharpier/csharpier.sh --no-restore --mode=check
