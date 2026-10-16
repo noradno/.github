@@ -27,16 +27,6 @@ on:
         description: 'The name of the environment to deploy to'
         required: true
         type: string
-      granma-auth-authority:
-        description: 'Entra External ID authority for lib-granma-auth (GranMaAuth). Leave empty to skip.'
-        required: false
-        type: string
-        default: ''
-      granma-auth-audience:
-        description: 'Client ID of the GranMa app, accepted as token audience by lib-granma-auth'
-        required: false
-        type: string
-        default: ''
     secrets:
       APPLICATIONINSIGHTS_CONNECTIONSTRING:
         description: 'Secret used for Azure Application Insights connection'
@@ -112,14 +102,7 @@ jobs:
             --name ${{ vars.APP_NAME }} \
             --linux-fx-version "$DOTNET_RUNTIME_VERSION"
 
-      - name: Validate GranMa auth settings
-        # Fail before any app setting is written, so a missing value can't overwrite a working one
-        if: >-
-          (inputs.granma-auth-authority == '') != (inputs.granma-auth-audience == '') ||
-          (vars.ENTRA_CALLOUT_AUDIENCE != '' && inputs.granma-auth-authority == '')
-        run: |
-          echo "::error::Incomplete GranMa auth configuration. granma-auth-authority and granma-auth-audience must both be set or both be empty, and ENTRA_CALLOUT_AUDIENCE requires granma-auth-authority."
-          exit 1
+
 
       - name: Configure App Settings
         env:
@@ -127,27 +110,18 @@ jobs:
         run: |
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
-            --name ${{ vars.APP_NAME }} \
+            --name ${{ vars.APP_NAME }}
             --settings \
             "ApplicationInsights__ConnectionString=$APPLICATIONINSIGHTS_CONNECTIONSTRING" \
             "ConnectionStrings__DefaultConnection=${{ vars.SQL_CONNECTION_STRING }}" \
+            "GranMaAuth__Authority=${{ vars.GRANMA_AUTH_AUTHORITY }}" \
+            "GranMaAuth__ValidIssuers__0=${{ vars.GRANMA_AUTH_AUTHORITY }}" \
+            "GranMaAuth__ValidAudiences__0=${{ vars.GRANMA_AUTH_AUDIENCE }}" \
             "Serilog__Properties__Environment=${{ vars.ENVIRONMENT }}" \
             "ServiceBus__FullyQualifiedNamespace=${{ vars.SERVICE_BUS_NAMESPACE }}" \
             "ServiceBus__TopicName=${{ vars.SERVICE_BUS_TOPIC }}" \
             "ServiceBus__SubscriptionName=${{ vars.SERVICE_BUS_SUBSCRIPTION }}" \
             "ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT }}"
-
-      - name: Configure GranMa auth settings
-        if: inputs.granma-auth-authority != ''
-        run: |
-          # External ID issues tokens whose iss equals the authority
-          az webapp config appsettings set \
-            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
-            --name ${{ vars.APP_NAME }} \
-            --settings \
-            "GranMaAuth__Authority=${{ inputs.granma-auth-authority }}" \
-            "GranMaAuth__ValidIssuers__0=${{ inputs.granma-auth-authority }}" \
-            "GranMaAuth__ValidAudiences__0=${{ inputs.granma-auth-audience }}"
 
       - name: Configure token enrichment callout settings
         # Only set in the GitHub environments of repos that host token enrichment (api-user)
@@ -157,7 +131,7 @@ jobs:
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
             --settings \
-            "EntraCallout__Authority=${{ inputs.granma-auth-authority }}" \
+            "EntraCallout__Authority=${{ vars.GRANMA_AUTH_AUTHORITY }}" \
             "EntraCallout__Audience=${{ vars.ENTRA_CALLOUT_AUDIENCE }}"
 
       - name: Enable database reset flag
