@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: ${{ inputs.environment-name }}
-    # Make sure that two deployments of the same app to the same environment don't run at the same time, 
+    # Make sure that two deployments of the same app to the same environment don't run at the same time,
     # to avoid conflicts in updating Azure App Service app settings
     concurrency:
       group: deploy-${{ vars.APP_NAME }}-${{ inputs.environment-name }}
@@ -102,6 +102,8 @@ jobs:
             --name ${{ vars.APP_NAME }} \
             --linux-fx-version "$DOTNET_RUNTIME_VERSION"
 
+
+
       - name: Configure App Settings
         env:
           APPLICATIONINSIGHTS_CONNECTIONSTRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTIONSTRING }}
@@ -112,11 +114,25 @@ jobs:
             --settings \
             "ApplicationInsights__ConnectionString=$APPLICATIONINSIGHTS_CONNECTIONSTRING" \
             "ConnectionStrings__DefaultConnection=${{ vars.SQL_CONNECTION_STRING }}" \
+            "GranMaAuth__Authority=${{ vars.GRANMA_AUTH_AUTHORITY }}" \
+            "GranMaAuth__ValidIssuers__0=${{ vars.GRANMA_AUTH_AUTHORITY }}" \
+            "GranMaAuth__ValidAudiences__0=${{ vars.GRANMA_AUTH_AUDIENCE }}" \
             "Serilog__Properties__Environment=${{ vars.ENVIRONMENT }}" \
             "ServiceBus__FullyQualifiedNamespace=${{ vars.SERVICE_BUS_NAMESPACE }}" \
             "ServiceBus__TopicName=${{ vars.SERVICE_BUS_TOPIC }}" \
             "ServiceBus__SubscriptionName=${{ vars.SERVICE_BUS_SUBSCRIPTION }}" \
             "ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT }}"
+
+      - name: Configure token enrichment callout settings
+        # Only set in the GitHub environments of repos that host token enrichment (api-user)
+        if: vars.ENTRA_CALLOUT_AUDIENCE != ''
+        run: |
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings \
+            "EntraCallout__Authority=${{ vars.GRANMA_AUTH_AUTHORITY }}" \
+            "EntraCallout__Audience=${{ vars.ENTRA_CALLOUT_AUDIENCE }}"
 
       - name: Enable database reset flag
         if: inputs.reset_database == true
