@@ -27,6 +27,21 @@ on:
         description: 'The name of the environment to deploy to'
         required: true
         type: string
+      granma-auth-authority:
+        description: 'Entra External ID authority for lib-granma-auth (GranMaAuth). Leave empty to skip.'
+        required: false
+        type: string
+        default: ''
+      granma-auth-audience:
+        description: 'Client ID of the GranMa app, accepted as token audience by lib-granma-auth'
+        required: false
+        type: string
+        default: ''
+      entra-callout-audience:
+        description: 'Client ID of the custom authentication extension app (token enrichment). Leave empty to skip.'
+        required: false
+        type: string
+        default: ''
     secrets:
       APPLICATIONINSIGHTS_CONNECTIONSTRING:
         description: 'Secret used for Azure Application Insights connection'
@@ -47,7 +62,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: ${{ inputs.environment-name }}
-    # Make sure that two deployments of the same app to the same environment don't run at the same time, 
+    # Make sure that two deployments of the same app to the same environment don't run at the same time,
     # to avoid conflicts in updating Azure App Service app settings
     concurrency:
       group: deploy-${{ vars.APP_NAME }}-${{ inputs.environment-name }}
@@ -117,6 +132,28 @@ jobs:
             "ServiceBus__TopicName=${{ vars.SERVICE_BUS_TOPIC }}" \
             "ServiceBus__SubscriptionName=${{ vars.SERVICE_BUS_SUBSCRIPTION }}" \
             "ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT }}"
+
+      - name: Configure GranMa auth settings
+        if: inputs.granma-auth-authority != ''
+        run: |
+          # External ID issues tokens whose iss equals the authority
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings \
+            "GranMaAuth__Authority=${{ inputs.granma-auth-authority }}" \
+            "GranMaAuth__ValidIssuers__0=${{ inputs.granma-auth-authority }}" \
+            "GranMaAuth__ValidAudiences__0=${{ inputs.granma-auth-audience }}"
+
+      - name: Configure token enrichment callout settings
+        if: inputs.entra-callout-audience != ''
+        run: |
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings \
+            "EntraCallout__Authority=${{ inputs.granma-auth-authority }}" \
+            "EntraCallout__Audience=${{ inputs.entra-callout-audience }}"
 
       - name: Enable database reset flag
         if: inputs.reset_database == true
