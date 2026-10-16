@@ -112,6 +112,15 @@ jobs:
             --name ${{ vars.APP_NAME }} \
             --linux-fx-version "$DOTNET_RUNTIME_VERSION"
 
+      - name: Validate GranMa auth settings
+        # Fail before any app setting is written, so a missing value can't overwrite a working one
+        if: >-
+          (inputs.granma-auth-authority == '') != (inputs.granma-auth-audience == '') ||
+          (vars.ENTRA_CALLOUT_AUDIENCE != '' && inputs.granma-auth-authority == '')
+        run: |
+          echo "::error::Incomplete GranMa auth configuration. granma-auth-authority and granma-auth-audience must both be set or both be empty, and ENTRA_CALLOUT_AUDIENCE requires granma-auth-authority."
+          exit 1
+
       - name: Configure App Settings
         env:
           APPLICATIONINSIGHTS_CONNECTIONSTRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTIONSTRING }}
