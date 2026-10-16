@@ -37,11 +37,6 @@ on:
         required: false
         type: string
         default: ''
-      entra-callout-audience:
-        description: 'Client ID of the custom authentication extension app (token enrichment). Leave empty to skip.'
-        required: false
-        type: string
-        default: ''
     secrets:
       APPLICATIONINSIGHTS_CONNECTIONSTRING:
         description: 'Secret used for Azure Application Insights connection'
@@ -146,14 +141,15 @@ jobs:
             "GranMaAuth__ValidAudiences__0=${{ inputs.granma-auth-audience }}"
 
       - name: Configure token enrichment callout settings
-        if: inputs.entra-callout-audience != ''
+        # Only set in the GitHub environments of repos that host token enrichment (api-user)
+        if: vars.ENTRA_CALLOUT_AUDIENCE != ''
         run: |
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
             --name ${{ vars.APP_NAME }} \
             --settings \
             "EntraCallout__Authority=${{ inputs.granma-auth-authority }}" \
-            "EntraCallout__Audience=${{ inputs.entra-callout-audience }}"
+            "EntraCallout__Audience=${{ vars.ENTRA_CALLOUT_AUDIENCE }}"
 
       - name: Enable database reset flag
         if: inputs.reset_database == true
