@@ -23,6 +23,9 @@ on:
       APPLICATIONINSIGHTS_CONNECTIONSTRING:
         description: 'Secret used for Azure Application Insights connection'
         required: true
+      ENTRA_EXTERNAL_ID_CLIENT_SECRET:
+        description: 'Client secret for the Entra External ID app registration used for sign-in'
+        required: true
 
 permissions:
   id-token: write
@@ -36,7 +39,7 @@ jobs:
     environment:
       name: ${{ inputs.environment-name }}
       url: ${{ vars.APP_URL }}
-    # Make sure that two deployments of the same app to the same environment don't run at the same time, 
+    # Make sure that two deployments of the same app to the same environment don't run at the same time,
     # to avoid conflicts in updating Azure App Service app settings
     concurrency:
       group: deploy-${{ vars.APP_NAME }}-${{ inputs.environment-name }}
@@ -63,7 +66,7 @@ jobs:
         run: |
           # Copy the 'public' folder to the standalone root
           cp -r public .next/standalone/
-          
+
           # Copy the built '.next/static' folder to the standalone .next directory
           cp -r .next/static .next/standalone/.next/
 
@@ -89,6 +92,7 @@ jobs:
           PARTNER_API_SUBSCRIPTION_KEY: ${{ secrets.PARTNER_API_SUBSCRIPTION_KEY }}
           USER_API_SUBSCRIPTION_KEY: ${{ secrets.USER_API_SUBSCRIPTION_KEY }}
           APPLICATIONINSIGHTS_CONNECTIONSTRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTIONSTRING }}
+          ENTRA_EXTERNAL_ID_CLIENT_SECRET: ${{ secrets.ENTRA_EXTERNAL_ID_CLIENT_SECRET }}
         run: |
           az webapp config appsettings set \
             --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
@@ -114,7 +118,10 @@ jobs:
             ENABLE_HTTP_INSTRUMENTATION=${{ vars.ENABLE_HTTP_INSTRUMENTATION }} \
             ENABLE_UNDICI_INSTRUMENTATION=${{ vars.ENABLE_UNDICI_INSTRUMENTATION }} \
             ENABLE_DNS_INSTRUMENTATION=${{ vars.ENABLE_DNS_INSTRUMENTATION }} \
-            "APPLICATIONINSIGHTS_CONNECTIONSTRING=$APPLICATIONINSIGHTS_CONNECTIONSTRING"
+            "APPLICATIONINSIGHTS_CONNECTIONSTRING=$APPLICATIONINSIGHTS_CONNECTIONSTRING" \
+            ENTRA_EXTERNAL_ID_TENANT_ID=${{ vars.ENTRA_EXTERNAL_ID_TENANT_ID }} \
+            ENTRA_EXTERNAL_ID_CLIENT_ID=${{ vars.ENTRA_EXTERNAL_ID_CLIENT_ID }} \
+            "ENTRA_EXTERNAL_ID_CLIENT_SECRET=$ENTRA_EXTERNAL_ID_CLIENT_SECRET"
 
       - name: Configure App Service startup command
         run: |
