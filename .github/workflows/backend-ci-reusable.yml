@@ -1,0 +1,347 @@
+name: Backend CI Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      api-container-name:
+        description: 'The name of the API container and the target repository in the container registry'
+        required: true
+        type: string
+      azure-client-id:
+        description: 'The client ID of the service principal used to log in to Azure with OIDC'
+        required: true
+        type: string
+      azure-subscription-id:
+        description: 'The ID of the Azure subscription to log in to'
+        required: true
+        type: string
+      azure-tenant-id:
+        description: 'The ID of the Microsoft Entra tenant of the service principal'
+        required: true
+        type: string
+      container-registry-uri:
+        description: 'The URI of the container registry'
+        required: true
+        type: string
+      docker-network-name:
+        description: 'The external Docker network the compose services join; created if it does not exist'
+        required: true
+        type: string
+      # The service principal with push access to ACR has its federated credential bound to this environment,
+      # through the credential subject, so the job needs it to log in and push cache and images
+      environment:
+        description: 'The Github environment for use with container registry service principal'
+        required: true
+        type: string
+      job-timeout-minutes:
+        description: 'The maximum number of minutes each job may run'
+        required: false
+        type: number
+        default: 30
+      mcr-target-repository:
+        description: 'The target repository for MCR images in the container registry'
+        required: true
+        type: string
+      runner:
+        description: 'The runner label to run the jobs on'
+        required: true
+        type: string
+      # The version control system identifier: pr-<number> when triggered by a pull request, otherwise the branch name
+      # to be used when tagging images in order to uniquely identify them based on the branch or pull request
+      vcs-identifier:
+        description: 'The version control system identifier. By default: pr-<number> when triggered by a pull request, otherwise the branch name'
+        required: false
+        type: string
+        # Only ${{ }} expressions are evaluated here, no shell, so the value is sanitized for Docker tags where it's used
+        default: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+
+concurrency:
+  # github.workflow is the calling workflow's name, so two backends CI runs for the same PR or branch won't cancel each other
+  group: ${{ github.workflow }}-${{ inputs.vcs-identifier }}
+  cancel-in-progress: false
+
+env:
+  # Set the API container name for every docker compose invocation
+  API_CONTAINER_NAME: ${{ inputs.api-container-name }}
+  # Read by the caller's docker-compose.yml: pulls mcr.microsoft.com images (SQL Server and the Dockerfile's base images)
+  # through the ACR artifact cache instead of MCR. Requires the cache rule <registry>/<target-repository>/* => mcr.microsoft.com/*.
+  MCR_REGISTRY: ${{ inputs.container-registry-uri }}/${{ inputs.mcr-target-repository }}
+  # Read by the caller's docker-compose.yml for the name of its external network, so every compose command needs it
+  SHARED_NETWORK_NAME: ${{ inputs.docker-network-name }}
+  TEST_RESULTS_DIRECTORY: "TestResults"
+
+jobs:
+  format-check:
+    name: Format check
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Cache NuGet packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: CSharpier format check
+        run: ./csharpier/csharpier.sh --no-restore --mode=check
+
+  build-and-test-container:
+    name: Build and test container
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+      packages: read # Private NuGet packages during the image build
+      id-token: write # OIDC login to Azure for the ACR build cache
+      checks: write # Test report check run
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      # Docker tags allow only [A-Za-z0-9_.-] and at most 128 characters.
+      # Written to GITHUB_ENV so the build cache and image tagging steps use the same value.
+      - name: Sanitize version control system identifier for use in Docker tags
+        env:
+          VCS_IDENTIFIER: ${{ inputs.vcs-identifier }}
+        run: |
+          echo \
+          "VCS_IDENTIFIER_FOR_TAG=$(printf '%s' "$VCS_IDENTIFIER" | tr -c 'A-Za-z0-9_.-' '-' | cut -c1-100)" \
+          >> "$GITHUB_ENV"
+
+      - name: Create shared Docker network
+        run: |
+          docker network inspect "$SHARED_NETWORK_NAME" >/dev/null 2>&1 \
+            || docker network create "$SHARED_NETWORK_NAME"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ inputs.azure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-subscription-id }}
+
+      # Writes the ACR token to the Docker config, used by Docker for image pulls through the ACR artifact cache
+      # and by BuildKit for base image pulls and cache import and export.
+      # Before starting the databases, as their image is pulled from ACR.
+      - name: Log in to Azure Container Registry
+        run: az acr login --name ${{ inputs.container-registry-uri }}
+
+      # SQL Server is slow to become healthy, so start it without waiting and let it warm up during the build.
+      # api depends on sqlserver, tests depend on sqlserver-test.
+      - name: Start Docker databases
+        run: |
+          docker compose \
+            --profile dev \
+            --profile test \
+            up --detach \
+            sqlserver sqlserver-test
+
+      # Ephemeral runners start with an empty BuildKit cache, so layers are cached in ACR instead.
+      # The default docker driver builds straight into the runner's image store, so the built images don't have to be
+      # copied into Docker as a tarball. It can only export the registry cache with the containerd image store,
+      # so a separate docker-container builder is set up as a fallback when the store isn't enabled.
+      - name: Check for containerd image store
+        id: image-store
+        run: |
+          if docker info --format '{{json .DriverStatus}}' | grep --quiet 'io.containerd.snapshotter'; then
+            echo "Docker uses the containerd image store; building with the default docker driver"
+            echo "containerd=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Docker doesn't use the containerd image store; setting up a docker-container builder"
+            echo "containerd=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.image-store.outputs.containerd != 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Both targets are built in one BuildKit graph: the shared build stage runs once,
+      # then publish-for-api and publish-for-tests run in parallel.
+      # The registry cache is configured in the caller's docker-compose.yml; these variables switch it from
+      # its local defaults to reading and writing the VCS identifier cache tag.
+      - name: Build api and tests images
+        env:
+          EXTERNAL_BUILD_CACHE_TYPE: registry
+          EXTERNAL_BUILD_CACHE_URI: ${{ inputs.container-registry-uri }}
+          EXTERNAL_BUILD_CACHE_VCS_IDENTIFIER: ${{ env.VCS_IDENTIFIER_FOR_TAG }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker compose \
+            --profile dev \
+            --profile test \
+            build api tests
+
+      # Start the API container first to ensure it is ready before running health check
+      - name: Run API container
+        run: |
+          docker compose \
+            --profile dev \
+            up --detach api
+
+      # run exits with the test container's exit code, so a test failure fails the step
+      - name: Run test container
+        id: run-tests
+        run: |
+          docker compose \
+            --profile test \
+            up --abort-on-container-exit \
+            --exit-code-from tests
+
+      # The following test result steps run when tests fail too, but not when the test container never ran.
+      # The stopped container is kept until the clean-up step runs down, so the results can be copied out of it.
+      - name: Copy test results from test container
+        if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
+        run: |
+          docker compose \
+            --profile test \
+            cp tests:/test-results "$TEST_RESULTS_DIRECTORY"
+
+      # Includes the TRX test results and the Cobertura coverage reports
+      - name: Upload test results
+        if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: ${{ env.TEST_RESULTS_DIRECTORY }}
+          if-no-files-found: error
+          # Re-running the job replaces the test results from the previous attempt
+          overwrite: true
+
+      # Creates a check run with the pass/fail result and annotations for failed tests
+      - name: Report test results
+        if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        with:
+          name: Test results
+          path: ${{ env.TEST_RESULTS_DIRECTORY }}/**/*.trx
+          reporter: dotnet-trx
+          use-actions-summary: false
+
+      # The job runs in the caller's repository, so this repository's scripts must be checked out explicitly.
+      # job.workflow_* point at the commit of this reusable workflow, so the script always matches the workflow version.
+      # Checked out after the image build, as the folder is inside the workspace and would otherwise end up in the build context.
+      - name: Checkout CI scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-scripts
+          sparse-checkout: .github/scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      # This health check already covers migrations, but a failure only shows up slowly and without a clear reason.
+      # TODO: Add a check on migrations against an empty database once migrations is handled in an init container
+      - name: Check API health
+        run: bash .ci-scripts/.github/scripts/api-health-check.sh "$API_CONTAINER_NAME"
+
+      # Tags the image the running API container was started from, so exactly the tested image is pushed.
+      # The image is named after the API container, set by the api-container-name input.
+      - name: Tag API image
+        env:
+          REGISTRY: ${{ inputs.container-registry-uri }}
+        run: |
+          image_id=$(docker inspect --format '{{.Image}}' "$API_CONTAINER_NAME")
+          image="$REGISTRY/$API_CONTAINER_NAME"
+          # Tags:
+          # latest is pushed from every run, so it means "most recently built" regardless of branch or PR.
+          # VCS_IDENTIFIER_FOR_TAG is used to tag the image with the branch or PR identifier.
+          # GITHUB_SHA is used to tag the image with the commit SHA (the temporary merge commit when building from PR)
+          for tag in "$VCS_IDENTIFIER_FOR_TAG" "$GITHUB_SHA" latest; do
+            docker tag "$image_id" "$image:$tag"
+            echo "$image:$tag" >> "$RUNNER_TEMP/api-image-tags"
+          done
+          cat "$RUNNER_TEMP/api-image-tags"
+
+      # Jobs run on separate ephemeral runners, so the image is handed to push-container as an artifact
+      - name: Save API image as Github artifact
+        run: |
+          xargs docker save --output "$RUNNER_TEMP/api-image.tar" < "$RUNNER_TEMP/api-image-tags"
+
+      - name: Upload API image to Github artifacts for reuse across jobs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: api-image
+          path: ${{ runner.temp }}/api-image.tar
+          retention-days: 1
+          # Re-running the job replaces the image from the previous attempt
+          overwrite: true
+
+      - name: Show container logs
+        if: failure()
+        run: |
+          docker compose logs
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker compose \
+            --profile dev \
+            --profile test \
+            down --volumes --remove-orphans
+
+  push-container:
+    name: Push container
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    permissions:
+      id-token: write # OIDC login to Azure for pushing to ACR
+    needs:
+     - format-check
+     - build-and-test-container
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Download API image from Github artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: api-image
+          path: ${{ runner.temp }}
+
+      # Records the loaded tags, so exactly the tags created in build-and-test-container are pushed
+      - name: Load API image from file into Docker
+        run: |
+          docker load --input "$RUNNER_TEMP/api-image.tar" \
+            | sed -n 's/^Loaded image: //p' > "$RUNNER_TEMP/api-image-tags"
+          cat "$RUNNER_TEMP/api-image-tags"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ inputs.azure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-subscription-id }}
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name ${{ inputs.container-registry-uri }}
+
+      - name: Push API image to container registry
+        run: |
+          if [ ! -s "$RUNNER_TEMP/api-image-tags" ]; then
+            echo "::error::No tagged images were loaded from the artifact"
+            exit 1
+          fi
+          while read -r image; do
+            docker push "$image"
+          done < "$RUNNER_TEMP/api-image-tags"
