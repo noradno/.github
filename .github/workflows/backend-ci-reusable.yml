@@ -54,6 +54,10 @@ on:
         type: string
         # Only ${{ }} expressions are evaluated here, no shell, so the value is sanitized for Docker tags where it's used
         default: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+    secrets:
+      SONAR_TOKEN:
+        description: 'A token to authenticate with SonarQube'
+        required: true
 
 concurrency:
   # github.workflow is the calling workflow's name, so two backends CI runs for the same PR or branch won't cancel each other
@@ -100,6 +104,12 @@ jobs:
 
       - name: CSharpier format check
         run: ./csharpier/csharpier.sh --no-restore --mode=check
+
+  sonar-scan:
+    name: SonarQube Scan
+    uses: ./.github/workflows/sonarqube-scan-reusable.yml
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   build-and-test-container:
     name: Build and test container
@@ -308,8 +318,9 @@ jobs:
     permissions:
       id-token: write # OIDC login to Azure for pushing to ACR
     needs:
-     - format-check
-     - build-and-test-container
+      - build-and-test-container
+      - format-check
+      - sonar-scan
     environment:
       name: ${{ inputs.environment }}
     steps:
