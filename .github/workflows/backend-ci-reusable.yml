@@ -7,12 +7,12 @@ on:
         description: 'The name of the API container and the target repository in the container registry'
         required: true
         type: string
-      azure-client-id:
-        description: 'The client ID of the service principal used to log in to Azure with OIDC'
+      azure-infrastructure-client-id:
+        description: 'The client ID of the infrastructure service principal with credentials for connecting to ACR'
         required: true
         type: string
-      azure-subscription-id:
-        description: 'The ID of the Azure subscription to log in to'
+      azure-infrastructure-subscription-id:
+        description: 'The ID of the Azure subscription containing infrastructure resources, such as ACR'
         required: true
         type: string
       azure-tenant-id:
@@ -67,6 +67,9 @@ concurrency:
 env:
   # Set the API container name for every docker compose invocation
   API_CONTAINER_NAME: ${{ inputs.api-container-name }}
+  # Override the profile names for every docker compose invocation
+  COMPOSE_DEFAULT_PROFILE: default
+  COMPOSE_TEST_PROFILE: test
   # Read by the caller's docker-compose.yml: pulls mcr.microsoft.com images (SQL Server and the Dockerfile's base images)
   # through the ACR artifact cache instead of MCR. Requires the cache rule <registry>/<target-repository>/* => mcr.microsoft.com/*.
   MCR_REGISTRY: ${{ inputs.container-registry-uri }}/${{ inputs.mcr-target-repository }}
@@ -162,8 +165,8 @@ jobs:
       - name: Start Docker databases
         run: |
           docker compose \
-            --profile dev \
-            --profile test \
+            --profile $COMPOSE_DEFAULT_PROFILE \
+            --profile $COMPOSE_TEST_PROFILE \
             up --detach \
             sqlserver sqlserver-test
 
@@ -198,15 +201,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker compose \
-            --profile dev \
-            --profile test \
+            --profile $COMPOSE_DEFAULT_PROFILE \
+            --profile $COMPOSE_TEST_PROFILE \
             build api tests
 
       # Start the API container first to ensure it is ready before running health check
       - name: Run API container
+        env:
+          Database__Reset: true # Reset database in order to also test Migration Runner in CI
         run: |
           docker compose \
-            --profile dev \
+            --profile $COMPOSE_DEFAULT_PROFILE \
             up --detach api
 
       # run exits with the test container's exit code, so a test failure fails the step
@@ -214,7 +219,7 @@ jobs:
         id: run-tests
         run: |
           docker compose \
-            --profile test \
+            --profile $COMPOSE_TEST_PROFILE \
             up --abort-on-container-exit \
             --exit-code-from tests
 
@@ -224,7 +229,7 @@ jobs:
         if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
         run: |
           docker compose \
-            --profile test \
+            --profile $COMPOSE_TEST_PROFILE \
             cp tests:/test-results "$TEST_RESULTS_DIRECTORY"
 
       # Includes the TRX test results and the Cobertura coverage reports
@@ -307,8 +312,8 @@ jobs:
         if: always()
         run: |
           docker compose \
-            --profile dev \
-            --profile test \
+            --profile $COMPOSE_DEFAULT_PROFILE \
+            --profile $COMPOSE_TEST_PROFILE \
             down --volumes --remove-orphans
 
   push-container:
