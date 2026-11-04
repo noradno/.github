@@ -19,10 +19,15 @@ on:
         description: 'The ID of the Microsoft Entra tenant of the service principal'
         required: true
         type: string
-      container-registry-uri:
-        description: 'The URI of the container registry'
+      container-registry-hostname:
+        description: 'The hostname of the container registry, e.g. crgranma'
         required: true
         type: string
+      container-registry-suffix:
+        description: 'The suffix of the container registry, e.g., .azurecr.io'
+        required: false
+        type: string
+        default: .azurecr.io
       docker-network-name:
         description: 'The external Docker network the compose services join; created if it does not exist'
         required: true
@@ -70,9 +75,10 @@ env:
   # Override the profile names for every docker compose invocation
   COMPOSE_DEFAULT_PROFILE: default
   COMPOSE_TEST_PROFILE: test
+  CONTAINER_REGISTRY_URI: ${{ inputs.container-registry-hostname }}${{ inputs.container-registry-suffix }}
   # Read by the caller's docker-compose.yml: pulls mcr.microsoft.com images (SQL Server and the Dockerfile's base images)
   # through the ACR artifact cache instead of MCR. Requires the cache rule <registry>/<target-repository>/* => mcr.microsoft.com/*.
-  MCR_REGISTRY: ${{ inputs.container-registry-uri }}/${{ inputs.mcr-target-repository }}
+  MCR_REGISTRY: ${{ inputs.container-registry-hostname }}${{ inputs.container-registry-suffix }}/${{ inputs.mcr-target-repository }}
   # Read by the caller's docker-compose.yml for the name of its external network, so every compose command needs it
   SHARED_NETWORK_NAME: ${{ inputs.docker-network-name }}
   TEST_RESULTS_DIRECTORY: "TestResults"
@@ -158,7 +164,7 @@ jobs:
       # and by BuildKit for base image pulls and cache import and export.
       # Before starting the databases, as their image is pulled from ACR.
       - name: Log in to Azure Container Registry
-        run: az acr login --name ${{ inputs.container-registry-uri }}
+        run: az acr login --name ${{ inputs.container-registry-hostname }}
 
       # SQL Server is slow to become healthy, so start it without waiting and let it warm up during the build.
       # api depends on sqlserver, tests depend on sqlserver-test.
@@ -196,7 +202,7 @@ jobs:
       - name: Build api and tests images
         env:
           EXTERNAL_BUILD_CACHE_TYPE: registry
-          EXTERNAL_BUILD_CACHE_URI: ${{ inputs.container-registry-uri }}
+          EXTERNAL_BUILD_CACHE_URI: ${{ env.CONTAINER_REGISTRY_URI }}
           EXTERNAL_BUILD_CACHE_VCS_IDENTIFIER: ${{ env.VCS_IDENTIFIER_FOR_TAG }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -275,7 +281,7 @@ jobs:
       # The image is named after the API container, set by the api-container-name input.
       - name: Tag API image
         env:
-          REGISTRY: ${{ inputs.container-registry-uri }}
+          REGISTRY: ${{ env.CONTAINER_REGISTRY_URI }}
         run: |
           image_id=$(docker inspect --format '{{.Image}}' "$API_CONTAINER_NAME")
           image="$REGISTRY/$API_CONTAINER_NAME"
@@ -350,7 +356,7 @@ jobs:
           subscription-id: ${{ inputs.azure-infrastructure-subscription-id }}
 
       - name: Log in to Azure Container Registry
-        run: az acr login --name ${{ inputs.container-registry-uri }}
+        run: az acr login --name ${{ inputs.container-registry-hostname }}
 
       - name: Push API image to container registry
         run: |
