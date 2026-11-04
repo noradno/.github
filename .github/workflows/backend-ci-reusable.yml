@@ -150,9 +150,9 @@ jobs:
       - name: Azure Login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
         with:
-          client-id: ${{ inputs.azure-client-id }}
+          client-id: ${{ inputs.azure-infrastructure-client-id }}
           tenant-id: ${{ inputs.azure-tenant-id }}
-          subscription-id: ${{ inputs.azure-subscription-id }}
+          subscription-id: ${{ inputs.azure-infrastructure-subscription-id }}
 
       # Writes the ACR token to the Docker config, used by Docker for image pulls through the ACR artifact cache
       # and by BuildKit for base image pulls and cache import and export.
@@ -345,9 +345,9 @@ jobs:
       - name: Azure Login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
         with:
-          client-id: ${{ inputs.azure-client-id }}
+          client-id: ${{ inputs.azure-infrastructure-client-id }}
           tenant-id: ${{ inputs.azure-tenant-id }}
-          subscription-id: ${{ inputs.azure-subscription-id }}
+          subscription-id: ${{ inputs.azure-infrastructure-subscription-id }}
 
       - name: Log in to Azure Container Registry
         run: az acr login --name ${{ inputs.container-registry-uri }}
