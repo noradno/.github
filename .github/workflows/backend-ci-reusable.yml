@@ -138,6 +138,22 @@ jobs:
         with:
           fetch-depth: 1
 
+      # GitHub-hosted runners ship Docker with the classic overlay2 image store, so switch to the containerd image store.
+      # Restarting the daemon stops running containers and hides images pulled into the old store,
+      # so this must run before any Docker resources are created or images are pulled.
+      # Only the containerd image store can export the registry cache,
+      # Self-hosted runners are left as configured; the check step below falls back to a docker-container builder.
+      - name: Enable containerd image store
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: |
+          config=/etc/docker/daemon.json
+          merged=$(mktemp)
+          # Slurp so a missing or empty config is treated as {}, keeping any existing settings
+          { sudo cat "$config" 2>/dev/null || true; } \
+            | jq --slurp '(.[0] // {}) | .features["containerd-snapshotter"] = true' > "$merged"
+          sudo install --mode=644 "$merged" "$config"
+          sudo systemctl restart docker
+
       # Docker tags allow only [A-Za-z0-9_.-] and at most 128 characters.
       # Written to GITHUB_ENV so the build cache and image tagging steps use the same value.
       - name: Sanitize version control system identifier for use in Docker tags
@@ -179,7 +195,8 @@ jobs:
       # Ephemeral runners start with an empty BuildKit cache, so layers are cached in ACR instead.
       # The default docker driver builds straight into the runner's image store, so the built images don't have to be
       # copied into Docker as a tarball. It can only export the registry cache with the containerd image store,
-      # so a separate docker-container builder is set up as a fallback when the store isn't enabled.
+      # so a separate docker-container builder is set up as a fallback when the store isn't enabled
+      # (self-hosted runners without it, or if enabling it above failed to take effect).
       - name: Check for containerd image store
         id: image-store
         run: |
@@ -190,10 +207,6 @@ jobs:
             echo "::notice::Docker doesn't use the containerd image store; setting up a docker-container builder"
             echo "containerd=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Set up Docker Buildx
-        if: steps.image-store.outputs.containerd != 'true'
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Both targets are built in one BuildKit graph: the shared build stage runs once,
       # then publish-for-api and publish-for-tests run in parallel.
@@ -230,7 +243,7 @@ jobs:
             --exit-code-from tests
 
       # The following test result steps run when tests fail too, but not when the test container never ran.
-      # The stopped container is kept until the clean-up step runs down, so the results can be copied out of it.
+      # The stopped container is not removed, so the results can be copied out of it.
       - name: Copy test results from test container
         if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
         run: |
@@ -313,14 +326,6 @@ jobs:
         if: failure()
         run: |
           docker compose logs
-
-      - name: Clean up
-        if: always()
-        run: |
-          docker compose \
-            --profile $COMPOSE_DEFAULT_PROFILE \
-            --profile $COMPOSE_TEST_PROFILE \
-            down --volumes --remove-orphans
 
   push-container:
     name: Push container
