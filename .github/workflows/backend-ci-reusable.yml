@@ -183,30 +183,23 @@ jobs:
         run: az acr login --name ${{ inputs.container-registry-hostname }}
 
       # SQL Server is slow to become healthy, so start it without waiting and let it warm up during the build.
+      # Pulling the image takes a while too, so the whole start runs in the background; the job continues with
+      # the build, and the "Wait for Docker databases" step waits for it before anything depends on the databases.
+      # Output is written to a file, so the background process doesn't hold the step's output open.
       # api depends on sqlserver, tests depend on sqlserver-test.
-      - name: Start Docker databases
+      - name: Start Docker databases in the background
         run: |
-          docker compose \
-            --profile $COMPOSE_DEFAULT_PROFILE \
-            --profile $COMPOSE_TEST_PROFILE \
-            up --detach \
-            sqlserver sqlserver-test
-
-      # Ephemeral runners start with an empty BuildKit cache, so layers are cached in ACR instead.
-      # The default docker driver builds straight into the runner's image store, so the built images don't have to be
-      # copied into Docker as a tarball. It can only export the registry cache with the containerd image store,
-      # so a separate docker-container builder is set up as a fallback when the store isn't enabled
-      # (self-hosted runners without it, or if enabling it above failed to take effect).
-      - name: Check for containerd image store
-        id: image-store
-        run: |
-          if docker info --format '{{json .DriverStatus}}' | grep --quiet 'io.containerd.snapshotter'; then
-            echo "Docker uses the containerd image store; building with the default docker driver"
-            echo "containerd=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::Docker doesn't use the containerd image store; setting up a docker-container builder"
-            echo "containerd=false" >> "$GITHUB_OUTPUT"
-          fi
+          nohup bash -c '
+            docker compose \
+              --profile "$COMPOSE_DEFAULT_PROFILE" \
+              --profile "$COMPOSE_TEST_PROFILE" \
+              up --detach \
+              sqlserver sqlserver-test
+            # Written to a temporary file first, so the wait step never reads a partly written exit code
+            echo $? > "$RUNNER_TEMP/databases-exit-code.tmp"
+            mv "$RUNNER_TEMP/databases-exit-code.tmp" "$RUNNER_TEMP/databases-exit-code"
+          ' > "$RUNNER_TEMP/databases.log" 2>&1 < /dev/null &
+          echo "Started in the background; the output is shown in the \"Wait for Docker databases\" step"
 
       # Both targets are built in one BuildKit graph: the shared build stage runs once,
       # then publish-for-api and publish-for-tests run in parallel.
@@ -223,6 +216,18 @@ jobs:
             --profile $COMPOSE_DEFAULT_PROFILE \
             --profile $COMPOSE_TEST_PROFILE \
             build api tests
+
+      # Waits for the background start of the databases, as compose would otherwise try to create them again for
+      # the services that depend on them. Only waits for the containers to be created; the services' depends_on
+      # conditions still wait for them to become healthy.
+      - name: Wait for Docker databases
+        run: |
+          exit_code_file="$RUNNER_TEMP/databases-exit-code"
+          until [ -f "$exit_code_file" ]; do sleep 1; done
+          echo "::group::Start Docker databases output"
+          cat "$RUNNER_TEMP/databases.log"
+          echo "::endgroup::"
+          exit "$(cat "$exit_code_file")"
 
       # Start the API container first to ensure it is ready before running health check
       - name: Run API container
