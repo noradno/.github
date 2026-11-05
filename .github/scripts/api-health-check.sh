@@ -26,7 +26,7 @@ timeout=5
 path=/health
 container=""
 
-while [ "$#" -gt 0 ]; do
+while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --attempts) attempts="${2:?--attempts needs a value}"; shift 2 ;;
     --delay) delay="${2:?--delay needs a value}"; shift 2 ;;
@@ -35,7 +35,7 @@ while [ "$#" -gt 0 ]; do
     -h | --help) usage ;;
     -*) echo "Unknown option: $1" >&2; usage ;;
     *)
-      if [ -n "$container" ]; then
+      if [[ -n "$container" ]]; then
         echo "Only one container name can be given" >&2
         usage
       fi
@@ -45,7 +45,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$container" ]; then
+if [[ -z "$container" ]]; then
   usage
 fi
 
@@ -56,7 +56,7 @@ if ! mappings=$(docker port "$container" 2>&1); then
 fi
 
 host_port=$(printf '%s\n' "$mappings" | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | sort -u | head -n 1)
-if [ -z "$host_port" ]; then
+if [[ -z "$host_port" ]]; then
   echo "::error::Container $container doesn't publish any port to the host"
   exit 1
 fi
@@ -74,7 +74,7 @@ for attempt in $(seq 1 "$attempts"); do
     "$url" || true)
   status="${response##*$'\n'}"
   body="${response%$'\n'*}"
-  if [ "$status" = "200" ]; then
+  if [[ "$status" = "200" ]]; then
     echo "API is healthy (HTTP $status)"
     echo "$body"
     exit 0

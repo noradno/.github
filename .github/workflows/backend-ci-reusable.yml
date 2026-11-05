@@ -72,6 +72,9 @@ concurrency:
 env:
   # Set the API container name for every docker compose invocation
   API_CONTAINER_NAME: ${{ inputs.api-container-name }}
+  # Where this repository's scripts are checked out in the caller's workspace, and their directory in this repository
+  CI_SCRIPTS_CHECKOUT_PATH: .ci-scripts
+  CI_SCRIPTS_DIRECTORY: .github/scripts
   # Override the profile names for every docker compose invocation
   COMPOSE_DEFAULT_PROFILE: default
   COMPOSE_TEST_PROFILE: test
@@ -79,14 +82,26 @@ env:
   # Read by the caller's docker-compose.yml: pulls mcr.microsoft.com images (SQL Server and the Dockerfile's base images)
   # through the ACR artifact cache instead of MCR. Requires the cache rule <registry>/<target-repository>/* => mcr.microsoft.com/*.
   MCR_REGISTRY: ${{ inputs.container-registry-hostname }}${{ inputs.container-registry-suffix }}/${{ inputs.mcr-target-repository }}
+  # NuGet package cache: runner.os and hashFiles() aren't available here, so the key is assembled in each cache step.
+  # Not named NUGET_PACKAGES, as NuGet reads that as its packages folder and doesn't expand the ~.
+  # hashFiles() splits the patterns on newlines, so they're kept in one variable.
+  NUGET_CACHE_KEY_FILES: |
+    **/packages.lock.json
+    **/*.csproj
+    **/Directory.Packages.props
+  NUGET_CACHE_KEY_PREFIX: nuget-
+  NUGET_CACHE_PATH: ~/.nuget/packages
   # Read by the caller's docker-compose.yml for the name of its external network, so every compose command needs it
   SHARED_NETWORK_NAME: ${{ inputs.docker-network-name }}
+  # Passed as TargetRuntimeIdentifier to native builds, matching the RID the caller's Dockerfile builds for.
+  # The caller's Directory.Build.props turns it into a per project RuntimeIdentifier, as a solution build rejects one (NETSDK1134).
+  TARGET_RUNTIME_IDENTIFIER: linux-x64
   TEST_RESULTS_DIRECTORY: "TestResults"
 
 jobs:
   format-check:
     name: Format check
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.job-timeout-minutes }}
     # Permissions are repeated per job for least privilege
     permissions:
@@ -98,27 +113,120 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
       - name: Cache NuGet packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/*.csproj') }}
+          path: ${{ env.NUGET_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}${{ hashFiles(env.NUGET_CACHE_KEY_FILES) }}
           restore-keys: |
-            ${{ runner.os }}-nuget-
+            ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore /p:TargetRuntimeIdentifier="$TARGET_RUNTIME_IDENTIFIER"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: CSharpier format check
         run: ./csharpier/csharpier.sh --no-restore --mode=check
 
+  # C# is only analyzed by SonarScanner for .NET, which hooks the Roslyn analyzers into a build between its begin and end
+  # steps. The image build runs inside Docker without the scanner, so the code is built natively here for the analysis.
+  # Other file types (Dockerfile, .env, scripts, etc.) are still analyzed through the scanner's multi-language analysis.
+  # https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud#setting-up-your-workflow-file
   sonar-scan:
     name: SonarQube Scan
-    uses: ./.github/workflows/sonarqube-scan-reusable.yml
-    secrets:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+      packages: read # Private NuGet packages during restore
+    env:
+      SONAR_SCANNER_VERSION: 12.0.0
+    steps:
+      # Full history, so SonarQube can blame lines and detect new code
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # The job runs in the caller's repository, so this repository's scripts must be checked out explicitly.
+      # job.workflow_* point at the commit of this reusable workflow, so the script always matches the workflow version.
+      - name: Checkout CI scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: ${{ env.CI_SCRIPTS_CHECKOUT_PATH }}
+          sparse-checkout: ${{ env.CI_SCRIPTS_DIRECTORY }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.NUGET_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}${{ hashFiles(env.NUGET_CACHE_KEY_FILES) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}
+
+      # Analyzer plugins and the JRE, which the scanner downloads from the server
+      - name: Cache SonarQube packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar-${{ env.SONAR_SCANNER_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-sonar-
+
+      - name: Install SonarScanner for .NET
+        run: |
+          dotnet tool install dotnet-sonarscanner \
+            --version "$SONAR_SCANNER_VERSION" \
+            --tool-path "$RUNNER_TEMP/sonar-scanner"
+          echo "$RUNNER_TEMP/sonar-scanner" >> "$GITHUB_PATH"
+
+      - name: Restore
+        run: dotnet restore /p:TargetRuntimeIdentifier="$TARGET_RUNTIME_IDENTIFIER"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # SonarScanner for .NET doesn't read sonar-project.properties and fails its end step when the file exists,
+      # so the caller's settings are passed as begin arguments instead and the file is removed from the workspace.
+      # The CI scripts are removed too, so they aren't analyzed as part of the caller's repository.
+      # The output is captured before splitting, so a parse failure fails the step.
+      - name: Begin SonarQube analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          parsed=$(bash "$CI_SCRIPTS_CHECKOUT_PATH/$CI_SCRIPTS_DIRECTORY/parse-sonar-properties.sh" sonar-project.properties)
+          mapfile -t args <<< "$parsed"
+          rm -rf sonar-project.properties "$CI_SCRIPTS_CHECKOUT_PATH"
+          dotnet sonarscanner begin "${args[@]}" "/d:sonar.token=$SONAR_TOKEN"
+
+      - name: Build
+        run: |
+          dotnet build \
+            --no-restore \
+            --no-incremental \
+            --configuration Release \
+            /p:CSharpier_Bypass=true \
+            /p:TargetRuntimeIdentifier="$TARGET_RUNTIME_IDENTIFIER"
+
+      - name: End SonarQube analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet sonarscanner end "/d:sonar.token=$SONAR_TOKEN"
 
   build-and-test-container:
     name: Build and test container
@@ -285,15 +393,15 @@ jobs:
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
-          path: .ci-scripts
-          sparse-checkout: .github/scripts
+          path: ${{ env.CI_SCRIPTS_CHECKOUT_PATH }}
+          sparse-checkout: ${{ env.CI_SCRIPTS_DIRECTORY }}
           fetch-depth: 1
           persist-credentials: false
 
       # This health check already covers migrations, but a failure only shows up slowly and without a clear reason.
       # TODO: Add a check on migrations against an empty database once migrations is handled in an init container
       - name: Check API health
-        run: bash .ci-scripts/.github/scripts/api-health-check.sh "$API_CONTAINER_NAME"
+        run: bash "$CI_SCRIPTS_CHECKOUT_PATH/$CI_SCRIPTS_DIRECTORY/api-health-check.sh" "$API_CONTAINER_NAME"
 
       # Tags the image the running API container was started from, so exactly the tested image is pushed.
       # The image is named after the API container, set by the api-container-name input.
