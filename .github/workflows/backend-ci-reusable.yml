@@ -1,0 +1,578 @@
+name: Backend CI Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      api-container-name:
+        description: 'The name of the API container and the target repository in the container registry'
+        required: true
+        type: string
+      azure-infrastructure-client-id:
+        description: 'The client ID of the infrastructure service principal with credentials for connecting to ACR'
+        required: true
+        type: string
+      azure-infrastructure-subscription-id:
+        description: 'The ID of the Azure subscription containing infrastructure resources, such as ACR'
+        required: true
+        type: string
+      azure-tenant-id:
+        description: 'The ID of the Microsoft Entra tenant of the service principal'
+        required: true
+        type: string
+      container-registry-hostname:
+        description: 'The hostname of the container registry, e.g. crgranma'
+        required: true
+        type: string
+      container-registry-suffix:
+        description: 'The suffix of the container registry, e.g., .azurecr.io'
+        required: false
+        type: string
+        default: .azurecr.io
+      docker-network-name:
+        description: 'The external Docker network the compose services join; created if it does not exist'
+        required: true
+        type: string
+      # The service principal with push access to ACR has its federated credential bound to this environment,
+      # through the credential subject, so the job needs it to log in and push cache and images
+      environment:
+        description: 'The Github environment for use with container registry service principal'
+        required: true
+        type: string
+      job-timeout-minutes:
+        description: 'The maximum number of minutes each job may run'
+        required: false
+        type: number
+        default: 30
+      mcr-target-repository:
+        description: 'The target repository for MCR images in the container registry'
+        required: true
+        type: string
+      runner:
+        description: 'The runner label to run the jobs on'
+        required: true
+        type: string
+      # The version control system identifier: pr-<number> when triggered by a pull request, otherwise the branch name
+      # to be used when tagging images in order to uniquely identify them based on the branch or pull request
+      vcs-identifier:
+        description: 'The version control system identifier. By default: pr-<number> when triggered by a pull request, otherwise the branch name'
+        required: false
+        type: string
+        # Only ${{ }} expressions are evaluated here, no shell, so the value is sanitized for Docker tags where it's used
+        default: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+    secrets:
+      SONAR_TOKEN:
+        description: 'A token to authenticate with SonarCloud'
+        required: true
+
+concurrency:
+  # github.workflow is the calling workflow's name, so two backends CI runs for the same PR or branch won't cancel each other
+  group: ${{ github.workflow }}-${{ inputs.vcs-identifier }}
+  cancel-in-progress: false
+
+env:
+  # Set the API container name for every docker compose invocation
+  API_CONTAINER_NAME: ${{ inputs.api-container-name }}
+  # Where this repository's scripts are checked out in the caller's workspace, and their directory in this repository
+  CI_SCRIPTS_CHECKOUT_PATH: .ci-scripts
+  CI_SCRIPTS_DIRECTORY: .github/scripts
+  # Override the profile names for every docker compose invocation
+  COMPOSE_DEFAULT_PROFILE: default
+  COMPOSE_TEST_PROFILE: test
+  CONTAINER_REGISTRY_URI: ${{ inputs.container-registry-hostname }}${{ inputs.container-registry-suffix }}
+  # Read by the caller's docker-compose.yml: pulls mcr.microsoft.com images (SQL Server and the Dockerfile's base images)
+  # through the ACR artifact cache instead of MCR. Requires the cache rule <registry>/<target-repository>/* => mcr.microsoft.com/*.
+  MCR_REGISTRY: ${{ inputs.container-registry-hostname }}${{ inputs.container-registry-suffix }}/${{ inputs.mcr-target-repository }}
+  # NuGet package cache: runner.os and hashFiles() aren't available here, so the key is assembled in each cache step.
+  # Not named NUGET_PACKAGES, as NuGet reads that as its packages folder and doesn't expand the ~.
+  # hashFiles() splits the patterns on newlines, so they're kept in one variable.
+  NUGET_CACHE_KEY_FILES: |
+    **/packages.lock.json
+    **/*.csproj
+    **/Directory.Packages.props
+  NUGET_CACHE_KEY_PREFIX: nuget-
+  NUGET_CACHE_PATH: ~/.nuget/packages
+  # Read by the caller's docker-compose.yml for the name of its external network, so every compose command needs it
+  SHARED_NETWORK_NAME: ${{ inputs.docker-network-name }}
+  # Artifact with the SonarScanner for .NET state between its begin and end steps, handed from sonar-scan to sonar-upload
+  SONAR_ANALYSIS_ARTIFACT_NAME: sonar-analysis
+  # Analyzer plugins and the JRE, which the scanner downloads from the server
+  SONAR_CACHE_KEY_PREFIX: sonar-
+  SONAR_CACHE_PATH: ~/.sonar/cache
+  SONAR_SCANNER_VERSION: 12.0.0
+  # Passed as TargetRuntimeIdentifier to native builds, matching the RID the caller's Dockerfile builds for.
+  # The caller's Directory.Build.props turns it into a per project RuntimeIdentifier, as a solution build rejects one (NETSDK1134).
+  TARGET_RUNTIME_IDENTIFIER: linux-x64
+  # Artifact with the TRX test results and Cobertura coverage reports, handed from the tests to the SonarCloud scan
+  TEST_RESULTS_ARTIFACT_NAME: test-results
+  TEST_RESULTS_DIRECTORY: "TestResults"
+
+jobs:
+  format-check:
+    name: Format check
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.NUGET_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}${{ hashFiles(env.NUGET_CACHE_KEY_FILES) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}
+
+      - name: Restore
+        run: dotnet restore /p:TargetRuntimeIdentifier="$TARGET_RUNTIME_IDENTIFIER"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: CSharpier format check
+        run: ./csharpier/csharpier.sh --no-restore --mode=check
+
+  # C# is only analyzed by SonarScanner for .NET, which hooks the Roslyn analyzers into a build between its begin and end
+  # steps. The image build runs inside Docker without the scanner, so the code is built natively here for the analysis.
+  # Other file types (Dockerfile, .env, scripts, etc.) are still analyzed through the scanner's multi-language analysis.
+  # The analysis is split in two jobs, so the build runs in parallel with build-and-test-container:
+  #   sonar-scan runs the begin step and the build, and hands the scanner's state over as an artifact
+  #   sonar-upload runs the end step once the coverage reports of the tests container are available
+  # The scanner's state contains absolute paths, so both jobs must run on the same runner type for matching workspace paths.
+  # https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud#setting-up-your-workflow-file
+  sonar-scan:
+    name: SonarCloud scan
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+      packages: read # Private NuGet packages during restore
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      # The job runs in the caller's repository, so this repository's scripts must be checked out explicitly.
+      # job.workflow_* point at the commit of this reusable workflow, so the script always matches the workflow version.
+      - name: Checkout CI scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: ${{ env.CI_SCRIPTS_CHECKOUT_PATH }}
+          sparse-checkout: ${{ env.CI_SCRIPTS_DIRECTORY }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.NUGET_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}${{ hashFiles(env.NUGET_CACHE_KEY_FILES) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.SONAR_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}${{ env.SONAR_SCANNER_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}
+
+      - name: Install SonarScanner for .NET
+        run: |
+          dotnet tool install dotnet-sonarscanner \
+            --version "$SONAR_SCANNER_VERSION" \
+            --tool-path "$RUNNER_TEMP/sonar-scanner"
+          echo "$RUNNER_TEMP/sonar-scanner" >> "$GITHUB_PATH"
+
+      - name: Restore
+        run: dotnet restore /p:TargetRuntimeIdentifier="$TARGET_RUNTIME_IDENTIFIER"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # SonarScanner for .NET doesn't read sonar-project.properties and fails its end step when the file exists,
+      # so the caller's settings are passed as begin arguments instead and the file is removed from the workspace.
+      # The CI scripts are removed too, so they aren't analyzed as part of the caller's repository.
+      # The output is captured before splitting, so a parse failure fails the step.
+      # The coverage reports don't exist yet; sonar-upload downloads them to this path before the end step reads them.
+      # They have deterministic /_/ source paths (ContinuousIntegrationBuild in the caller's Dockerfile),
+      # which SonarCloud matches to the analyzed sources, as the tests container's paths differ from the runner's.
+      - name: Begin SonarCloud analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          parsed=$(bash "$CI_SCRIPTS_CHECKOUT_PATH/$CI_SCRIPTS_DIRECTORY/parse-sonar-properties.sh" sonar-project.properties)
+          mapfile -t args <<< "$parsed"
+          rm -rf sonar-project.properties "$CI_SCRIPTS_CHECKOUT_PATH"
+          dotnet sonarscanner begin \
+            "${args[@]}" \
+            "/d:sonar.cs.cobertura.reportsPaths=$RUNNER_TEMP/$TEST_RESULTS_DIRECTORY/**/coverage.cobertura.xml" \
+            "/d:sonar.token=$SONAR_TOKEN"
+
+      - name: Build
+        run: |
+          dotnet build \
+            --no-restore \
+            --no-incremental \
+            --configuration Release \
+            /p:CSharpier_Bypass=true \
+            /p:TargetRuntimeIdentifier="$TARGET_RUNTIME_IDENTIFIER"
+
+      # .sonarqube holds the analysis config and the analyzer results the end step reads.
+      # The scanner always names it .sonarqube, SonarQube Cloud included.
+      # The generated sources in obj (e.g. AssemblyInfo, global usings) are listed for analysis too, so they're included
+      # to keep the analyzed files the same as in a single job; a fresh checkout doesn't have them.
+      - name: Upload SonarCloud analysis state
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.SONAR_ANALYSIS_ARTIFACT_NAME }}
+          path: |
+            .sonarqube
+            **/obj/**/*.cs
+          include-hidden-files: true # .sonarqube is a hidden folder, which is otherwise skipped
+          if-no-files-found: error
+          retention-days: 1
+          # Re-running the job replaces the state from the previous attempt
+          overwrite: true
+
+  # Runs when the tests fail too, as the analysis is useful on its own; coverage is then partial or missing
+  sonar-upload:
+    name: SonarCloud upload
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    needs:
+      - build-and-test-container
+      - sonar-scan
+    if: ${{ !cancelled() && needs.sonar-scan.result == 'success' }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+    steps:
+      # Full history, so SonarCloud can blame lines and detect new code.
+      # The same commit as sonar-scan, as the analysis state refers to its files.
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Restores .sonarqube and the generated sources into the workspace, at the paths sonar-scan had them
+      - name: Download SonarCloud analysis state
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.SONAR_ANALYSIS_ARTIFACT_NAME }}
+          path: ${{ github.workspace }}
+
+      # Missing when the tests container never ran; the analysis then runs without coverage.
+      # Downloaded outside the workspace, so the scanner doesn't analyze the reports as part of the caller's repository.
+      - name: Download test results
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.TEST_RESULTS_ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/${{ env.TEST_RESULTS_DIRECTORY }}
+
+      # Runs the scanner tool; global.json pins the SDK, which the runner may not have preinstalled
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.SONAR_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}${{ env.SONAR_SCANNER_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}
+
+      - name: Install SonarScanner for .NET
+        run: |
+          dotnet tool install dotnet-sonarscanner \
+            --version "$SONAR_SCANNER_VERSION" \
+            --tool-path "$RUNNER_TEMP/sonar-scanner"
+          echo "$RUNNER_TEMP/sonar-scanner" >> "$GITHUB_PATH"
+
+      # The checkout restored sonar-project.properties, which fails the end step; its settings were passed to begin
+      - name: End SonarCloud analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          rm -f sonar-project.properties
+          dotnet sonarscanner end "/d:sonar.token=$SONAR_TOKEN"
+
+  build-and-test-container:
+    name: Build and test container
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+      packages: read # Private NuGet packages during the image build
+      id-token: write # OIDC login to Azure for the ACR build cache
+      checks: write # Test report check run
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      # GitHub-hosted runners ship Docker with the classic overlay2 image store, so switch to the containerd image store.
+      # Restarting the daemon stops running containers and hides images pulled into the old store,
+      # so this must run before any Docker resources are created or images are pulled.
+      # Only the containerd image store can export the registry cache,
+      # Self-hosted runners are left as configured; the check step below falls back to a docker-container builder.
+      - name: Enable containerd image store
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        run: |
+          config=/etc/docker/daemon.json
+          merged=$(mktemp)
+          # Slurp so a missing or empty config is treated as {}, keeping any existing settings
+          { sudo cat "$config" 2>/dev/null || true; } \
+            | jq --slurp '(.[0] // {}) | .features["containerd-snapshotter"] = true' > "$merged"
+          sudo install --mode=644 "$merged" "$config"
+          sudo systemctl restart docker
+
+      # Docker tags allow only [A-Za-z0-9_.-] and at most 128 characters.
+      # Written to GITHUB_ENV so the build cache and image tagging steps use the same value.
+      - name: Sanitize version control system identifier for use in Docker tags
+        env:
+          VCS_IDENTIFIER: ${{ inputs.vcs-identifier }}
+        run: |
+          echo \
+          "VCS_IDENTIFIER_FOR_TAG=$(printf '%s' "$VCS_IDENTIFIER" | tr -c 'A-Za-z0-9_.-' '-' | cut -c1-100)" \
+          >> "$GITHUB_ENV"
+
+      - name: Create shared Docker network
+        run: |
+          docker network inspect "$SHARED_NETWORK_NAME" >/dev/null 2>&1 \
+            || docker network create "$SHARED_NETWORK_NAME"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ inputs.azure-infrastructure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-infrastructure-subscription-id }}
+
+      # Writes the ACR token to the Docker config, used by Docker for image pulls through the ACR artifact cache
+      # and by BuildKit for base image pulls and cache import and export.
+      # Before starting the databases, as their image is pulled from ACR.
+      - name: Log in to Azure Container Registry
+        run: az acr login --name ${{ inputs.container-registry-hostname }}
+
+      # SQL Server is slow to become healthy, so start it without waiting and let it warm up during the build.
+      # Pulling the image takes a while too, so the whole start runs in the background; the job continues with
+      # the build, and the "Wait for Docker databases" step waits for it before anything depends on the databases.
+      # Output is written to a file, so the background process doesn't hold the step's output open.
+      # api depends on sqlserver, tests depend on sqlserver-test.
+      - name: Start Docker databases in the background
+        run: |
+          nohup bash -c '
+            docker compose \
+              --profile "$COMPOSE_DEFAULT_PROFILE" \
+              --profile "$COMPOSE_TEST_PROFILE" \
+              up --detach \
+              sqlserver sqlserver-test
+            # Written to a temporary file first, so the wait step never reads a partly written exit code
+            echo $? > "$RUNNER_TEMP/databases-exit-code.tmp"
+            mv "$RUNNER_TEMP/databases-exit-code.tmp" "$RUNNER_TEMP/databases-exit-code"
+          ' > "$RUNNER_TEMP/databases.log" 2>&1 < /dev/null &
+          echo "Started in the background; the output is shown in the \"Wait for Docker databases\" step"
+
+      # Both targets are built in one BuildKit graph: the shared build stage runs once,
+      # then publish-for-api and publish-for-tests run in parallel.
+      # The registry cache is configured in the caller's docker-compose.yml; these variables switch it from
+      # its local defaults to reading and writing the VCS identifier cache tag.
+      - name: Build api and tests images
+        env:
+          EXTERNAL_BUILD_CACHE_TYPE: registry
+          EXTERNAL_BUILD_CACHE_URI: ${{ env.CONTAINER_REGISTRY_URI }}
+          EXTERNAL_BUILD_CACHE_VCS_IDENTIFIER: ${{ env.VCS_IDENTIFIER_FOR_TAG }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker compose \
+            --profile $COMPOSE_DEFAULT_PROFILE \
+            --profile $COMPOSE_TEST_PROFILE \
+            build api tests
+
+      # Waits for the background start of the databases, as compose would otherwise try to create them again for
+      # the services that depend on them. Only waits for the containers to be created; the services' depends_on
+      # conditions still wait for them to become healthy.
+      - name: Wait for Docker databases
+        run: |
+          exit_code_file="$RUNNER_TEMP/databases-exit-code"
+          until [ -f "$exit_code_file" ]; do sleep 1; done
+          echo "::group::Start Docker databases output"
+          cat "$RUNNER_TEMP/databases.log"
+          echo "::endgroup::"
+          exit "$(cat "$exit_code_file")"
+
+      # Start the API container first to ensure it is ready before running health check
+      - name: Run API container
+        env:
+          Database__Reset: true # Reset database in order to also test Migration Runner in CI
+        run: |
+          docker compose \
+            --profile $COMPOSE_DEFAULT_PROFILE \
+            up --detach api
+
+      # run exits with the test container's exit code, so a test failure fails the step
+      - name: Run test container
+        id: run-tests
+        run: |
+          docker compose \
+            --profile $COMPOSE_TEST_PROFILE \
+            up --abort-on-container-exit \
+            --exit-code-from tests
+
+      # The following test result steps run when tests fail too, but not when the test container never ran.
+      # The stopped container is not removed, so the results can be copied out of it.
+      - name: Copy test results from test container
+        if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
+        run: |
+          docker compose \
+            --profile $COMPOSE_TEST_PROFILE \
+            cp tests:/test-results "$TEST_RESULTS_DIRECTORY"
+
+      # Includes the TRX test results and the Cobertura coverage reports, which sonar-upload imports
+      - name: Upload test results
+        if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.TEST_RESULTS_ARTIFACT_NAME }}
+          path: ${{ env.TEST_RESULTS_DIRECTORY }}
+          if-no-files-found: error
+          # Re-running the job replaces the test results from the previous attempt
+          overwrite: true
+
+      # Creates a check run with the pass/fail result and annotations for failed tests
+      - name: Report test results
+        if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        with:
+          name: Test results
+          path: ${{ env.TEST_RESULTS_DIRECTORY }}/**/*.trx
+          reporter: dotnet-trx
+          use-actions-summary: false
+
+      # The job runs in the caller's repository, so this repository's scripts must be checked out explicitly.
+      # job.workflow_* point at the commit of this reusable workflow, so the script always matches the workflow version.
+      # Checked out after the image build, as the folder is inside the workspace and would otherwise end up in the build context.
+      - name: Checkout CI scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: ${{ env.CI_SCRIPTS_CHECKOUT_PATH }}
+          sparse-checkout: ${{ env.CI_SCRIPTS_DIRECTORY }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      # This health check already covers migrations, but a failure only shows up slowly and without a clear reason.
+      # TODO: Add a check on migrations against an empty database once migrations is handled in an init container
+      - name: Check API health
+        run: bash "$CI_SCRIPTS_CHECKOUT_PATH/$CI_SCRIPTS_DIRECTORY/api-health-check.sh" "$API_CONTAINER_NAME"
+
+      # Tags the image the running API container was started from, so exactly the tested image is pushed.
+      # The image is named after the API container, set by the api-container-name input.
+      - name: Tag API image
+        env:
+          REGISTRY: ${{ env.CONTAINER_REGISTRY_URI }}
+        run: |
+          image_id=$(docker inspect --format '{{.Image}}' "$API_CONTAINER_NAME")
+          image="$REGISTRY/$API_CONTAINER_NAME"
+          # Tags:
+          # latest is pushed from every run, so it means "most recently built" regardless of branch or PR.
+          # VCS_IDENTIFIER_FOR_TAG is used to tag the image with the branch or PR identifier.
+          # GITHUB_SHA is used to tag the image with the commit SHA (the temporary merge commit when building from PR)
+          for tag in "$VCS_IDENTIFIER_FOR_TAG" "$GITHUB_SHA" latest; do
+            docker tag "$image_id" "$image:$tag"
+            echo "$image:$tag" >> "$RUNNER_TEMP/api-image-tags"
+          done
+          cat "$RUNNER_TEMP/api-image-tags"
+
+      # Jobs run on separate ephemeral runners, so the image is handed to push-container as an artifact
+      - name: Save API image as Github artifact
+        run: |
+          xargs docker save --output "$RUNNER_TEMP/api-image.tar" < "$RUNNER_TEMP/api-image-tags"
+
+      - name: Upload API image to Github artifacts for reuse across jobs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: api-image
+          path: ${{ runner.temp }}/api-image.tar
+          retention-days: 1
+          # Re-running the job replaces the image from the previous attempt
+          overwrite: true
+
+      - name: Show container logs
+        if: failure()
+        run: |
+          docker compose logs
+
+  push-container:
+    name: Push container
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    permissions:
+      id-token: write # OIDC login to Azure for pushing to ACR
+    needs:
+      - build-and-test-container
+      - format-check
+      - sonar-upload
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Download API image from Github artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: api-image
+          path: ${{ runner.temp }}
+
+      # Records the loaded tags, so exactly the tags created in build-and-test-container are pushed
+      - name: Load API image from file into Docker
+        run: |
+          docker load --input "$RUNNER_TEMP/api-image.tar" \
+            | sed -n 's/^Loaded image: //p' > "$RUNNER_TEMP/api-image-tags"
+          cat "$RUNNER_TEMP/api-image-tags"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ inputs.azure-infrastructure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-infrastructure-subscription-id }}
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name ${{ inputs.container-registry-hostname }}
+
+      - name: Push API image to container registry
+        run: |
+          if [ ! -s "$RUNNER_TEMP/api-image-tags" ]; then
+            echo "::error::No tagged images were loaded from the artifact"
+            exit 1
+          fi
+          while read -r image; do
+            docker push "$image"
+          done < "$RUNNER_TEMP/api-image-tags"
