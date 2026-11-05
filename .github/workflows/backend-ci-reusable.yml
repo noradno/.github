@@ -61,7 +61,7 @@ on:
         default: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
     secrets:
       SONAR_TOKEN:
-        description: 'A token to authenticate with SonarQube'
+        description: 'A token to authenticate with SonarCloud'
         required: true
 
 concurrency:
@@ -93,9 +93,17 @@ env:
   NUGET_CACHE_PATH: ~/.nuget/packages
   # Read by the caller's docker-compose.yml for the name of its external network, so every compose command needs it
   SHARED_NETWORK_NAME: ${{ inputs.docker-network-name }}
+  # Artifact with the SonarScanner for .NET state between its begin and end steps, handed from sonar-scan to sonar-upload
+  SONAR_ANALYSIS_ARTIFACT_NAME: sonar-analysis
+  # Analyzer plugins and the JRE, which the scanner downloads from the server
+  SONAR_CACHE_KEY_PREFIX: sonar-
+  SONAR_CACHE_PATH: ~/.sonar/cache
+  SONAR_SCANNER_VERSION: 12.0.0
   # Passed as TargetRuntimeIdentifier to native builds, matching the RID the caller's Dockerfile builds for.
   # The caller's Directory.Build.props turns it into a per project RuntimeIdentifier, as a solution build rejects one (NETSDK1134).
   TARGET_RUNTIME_IDENTIFIER: linux-x64
+  # Artifact with the TRX test results and Cobertura coverage reports, handed from the tests to the SonarCloud scan
+  TEST_RESULTS_ARTIFACT_NAME: test-results
   TEST_RESULTS_DIRECTORY: "TestResults"
 
 jobs:
@@ -137,23 +145,24 @@ jobs:
   # C# is only analyzed by SonarScanner for .NET, which hooks the Roslyn analyzers into a build between its begin and end
   # steps. The image build runs inside Docker without the scanner, so the code is built natively here for the analysis.
   # Other file types (Dockerfile, .env, scripts, etc.) are still analyzed through the scanner's multi-language analysis.
+  # The analysis is split in two jobs, so the build runs in parallel with build-and-test-container:
+  #   sonar-scan runs the begin step and the build, and hands the scanner's state over as an artifact
+  #   sonar-upload runs the end step once the coverage reports of the tests container are available
+  # The scanner's state contains absolute paths, so both jobs must run on the same runner type for matching workspace paths.
   # https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud#setting-up-your-workflow-file
   sonar-scan:
-    name: SonarQube Scan
+    name: SonarCloud scan
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.job-timeout-minutes }}
     # Permissions are repeated per job for least privilege
     permissions:
       contents: read
       packages: read # Private NuGet packages during restore
-    env:
-      SONAR_SCANNER_VERSION: 12.0.0
     steps:
-      # Full history, so SonarQube can blame lines and detect new code
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       # The job runs in the caller's repository, so this repository's scripts must be checked out explicitly.
       # job.workflow_* point at the commit of this reusable workflow, so the script always matches the workflow version.
@@ -180,14 +189,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ env.NUGET_CACHE_KEY_PREFIX }}
 
-      # Analyzer plugins and the JRE, which the scanner downloads from the server
-      - name: Cache SonarQube packages
+      - name: Cache SonarCloud packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar-${{ env.SONAR_SCANNER_VERSION }}
+          path: ${{ env.SONAR_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}${{ env.SONAR_SCANNER_VERSION }}
           restore-keys: |
-            ${{ runner.os }}-sonar-
+            ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}
 
       - name: Install SonarScanner for .NET
         run: |
@@ -205,14 +213,20 @@ jobs:
       # so the caller's settings are passed as begin arguments instead and the file is removed from the workspace.
       # The CI scripts are removed too, so they aren't analyzed as part of the caller's repository.
       # The output is captured before splitting, so a parse failure fails the step.
-      - name: Begin SonarQube analysis
+      # The coverage reports don't exist yet; sonar-upload downloads them to this path before the end step reads them.
+      # They have deterministic /_/ source paths (ContinuousIntegrationBuild in the caller's Dockerfile),
+      # which SonarCloud matches to the analyzed sources, as the tests container's paths differ from the runner's.
+      - name: Begin SonarCloud analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           parsed=$(bash "$CI_SCRIPTS_CHECKOUT_PATH/$CI_SCRIPTS_DIRECTORY/parse-sonar-properties.sh" sonar-project.properties)
           mapfile -t args <<< "$parsed"
           rm -rf sonar-project.properties "$CI_SCRIPTS_CHECKOUT_PATH"
-          dotnet sonarscanner begin "${args[@]}" "/d:sonar.token=$SONAR_TOKEN"
+          dotnet sonarscanner begin \
+            "${args[@]}" \
+            "/d:sonar.cs.cobertura.reportsPaths=$RUNNER_TEMP/$TEST_RESULTS_DIRECTORY/**/coverage.cobertura.xml" \
+            "/d:sonar.token=$SONAR_TOKEN"
 
       - name: Build
         run: |
@@ -223,10 +237,87 @@ jobs:
             /p:CSharpier_Bypass=true \
             /p:TargetRuntimeIdentifier="$TARGET_RUNTIME_IDENTIFIER"
 
-      - name: End SonarQube analysis
+      # .sonarqube holds the analysis config and the analyzer results the end step reads.
+      # The scanner always names it .sonarqube, SonarQube Cloud included.
+      # The generated sources in obj (e.g. AssemblyInfo, global usings) are listed for analysis too, so they're included
+      # to keep the analyzed files the same as in a single job; a fresh checkout doesn't have them.
+      - name: Upload SonarCloud analysis state
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.SONAR_ANALYSIS_ARTIFACT_NAME }}
+          path: |
+            .sonarqube
+            **/obj/**/*.cs
+          include-hidden-files: true # .sonarqube is a hidden folder, which is otherwise skipped
+          if-no-files-found: error
+          retention-days: 1
+          # Re-running the job replaces the state from the previous attempt
+          overwrite: true
+
+  # Runs when the tests fail too, as the analysis is useful on its own; coverage is then partial or missing
+  sonar-upload:
+    name: SonarCloud upload
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.job-timeout-minutes }}
+    needs:
+      - build-and-test-container
+      - sonar-scan
+    if: ${{ !cancelled() && needs.sonar-scan.result == 'success' }}
+    # Permissions are repeated per job for least privilege
+    permissions:
+      contents: read
+    steps:
+      # Full history, so SonarCloud can blame lines and detect new code.
+      # The same commit as sonar-scan, as the analysis state refers to its files.
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Restores .sonarqube and the generated sources into the workspace, at the paths sonar-scan had them
+      - name: Download SonarCloud analysis state
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.SONAR_ANALYSIS_ARTIFACT_NAME }}
+          path: ${{ github.workspace }}
+
+      # Missing when the tests container never ran; the analysis then runs without coverage.
+      # Downloaded outside the workspace, so the scanner doesn't analyze the reports as part of the caller's repository.
+      - name: Download test results
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.TEST_RESULTS_ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/${{ env.TEST_RESULTS_DIRECTORY }}
+
+      # Runs the scanner tool; global.json pins the SDK, which the runner may not have preinstalled
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.SONAR_CACHE_PATH }}
+          key: ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}${{ env.SONAR_SCANNER_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SONAR_CACHE_KEY_PREFIX }}
+
+      - name: Install SonarScanner for .NET
+        run: |
+          dotnet tool install dotnet-sonarscanner \
+            --version "$SONAR_SCANNER_VERSION" \
+            --tool-path "$RUNNER_TEMP/sonar-scanner"
+          echo "$RUNNER_TEMP/sonar-scanner" >> "$GITHUB_PATH"
+
+      # The checkout restored sonar-project.properties, which fails the end step; its settings were passed to begin
+      - name: End SonarCloud analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: dotnet sonarscanner end "/d:sonar.token=$SONAR_TOKEN"
+        run: |
+          rm -f sonar-project.properties
+          dotnet sonarscanner end "/d:sonar.token=$SONAR_TOKEN"
 
   build-and-test-container:
     name: Build and test container
@@ -364,12 +455,12 @@ jobs:
             --profile $COMPOSE_TEST_PROFILE \
             cp tests:/test-results "$TEST_RESULTS_DIRECTORY"
 
-      # Includes the TRX test results and the Cobertura coverage reports
+      # Includes the TRX test results and the Cobertura coverage reports, which sonar-upload imports
       - name: Upload test results
         if: ${{ !cancelled() && steps.run-tests.outcome != 'skipped' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: test-results
+          name: ${{ env.TEST_RESULTS_ARTIFACT_NAME }}
           path: ${{ env.TEST_RESULTS_DIRECTORY }}
           if-no-files-found: error
           # Re-running the job replaces the test results from the previous attempt
@@ -449,7 +540,7 @@ jobs:
     needs:
       - build-and-test-container
       - format-check
-      - sonar-scan
+      - sonar-upload
     environment:
       name: ${{ inputs.environment }}
     steps:
