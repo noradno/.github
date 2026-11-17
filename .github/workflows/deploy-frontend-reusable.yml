@@ -4,27 +4,27 @@ on:
   workflow_call:
     inputs:
       environment-name:
-        description: 'The name of the environment to deploy to'
+        description: "The name of the environment to deploy to"
         required: true
         type: string
     secrets:
       AUTH_SECRET:
-        description: 'Secret used for NEXT Auth authentication'
+        description: "Secret used for NEXT Auth authentication"
         required: true
       AGREEMENT_API_SUBSCRIPTION_KEY:
-        description: 'APIM subscription key for the Agreement API'
+        description: "APIM subscription key for the Agreement API"
         required: true
       PARTNER_API_SUBSCRIPTION_KEY:
-        description: 'APIM subscription key for the Partner API'
+        description: "APIM subscription key for the Partner API"
         required: true
       USER_API_SUBSCRIPTION_KEY:
-        description: 'APIM subscription key for the User API'
+        description: "APIM subscription key for the User API"
         required: true
       APPLICATIONINSIGHTS_CONNECTIONSTRING:
-        description: 'Secret used for Azure Application Insights connection'
+        description: "Secret used for Azure Application Insights connection"
         required: true
       ENTRA_EXTERNAL_ID_CLIENT_SECRET:
-        description: 'Client secret for the Entra External ID app registration used for sign-in'
+        description: "Client secret for the Entra External ID app registration used for sign-in"
         required: true
 
 permissions:
@@ -54,13 +54,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '24.x'
-          cache: 'npm'
+          node-version: "24.x"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build application
         run: npm run build
