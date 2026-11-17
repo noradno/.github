@@ -2,12 +2,6 @@ name: SonarQube Scan Reusable Workflow
 
 on:
   workflow_call:
-    inputs:
-      working-directory:
-        description: 'The directory where the sonarqube scan will be run'
-        required: false
-        type: string
-        default: '.'
     secrets:
       SONAR_TOKEN:
         description: 'A token to authenticate with SonarQube'
@@ -21,9 +15,6 @@ jobs:
     timeout-minutes: 30
     name: Analyze code with SonarQube
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ inputs.working-directory }}
 
     steps:
       - name: Checkout code
