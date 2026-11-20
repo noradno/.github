@@ -31,6 +31,9 @@ on:
       APPLICATIONINSIGHTS_CONNECTIONSTRING:
         description: 'Secret used for Azure Application Insights connection'
         required: true
+      MESSAGING_ADMIN_API_KEY:
+        description: 'Key for the messaging admin endpoints (header X-Admin-Key). Only for services on Norad.GranMa.Messaging 2.x'
+        required: false
 
 env:
   PUBLISH_DIRECTORY: publish
@@ -121,7 +124,23 @@ jobs:
             "ServiceBus__FullyQualifiedNamespace=${{ vars.SERVICE_BUS_NAMESPACE }}" \
             "ServiceBus__TopicName=${{ vars.SERVICE_BUS_TOPIC }}" \
             "ServiceBus__SubscriptionName=${{ vars.SERVICE_BUS_SUBSCRIPTION }}" \
+            "Messaging__FullyQualifiedNamespace=${{ vars.SERVICE_BUS_NAMESPACE }}" \
             "ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT }}"
+
+      - name: Configure messaging admin key
+        # Skipped for callers that do not pass the secret. Without the key the admin endpoints stay locked.
+        env:
+          MESSAGING_ADMIN_API_KEY: ${{ secrets.MESSAGING_ADMIN_API_KEY }}
+        run: |
+          if [ -z "$MESSAGING_ADMIN_API_KEY" ]; then
+            echo "MESSAGING_ADMIN_API_KEY is not set, skipping."
+            exit 0
+          fi
+          az webapp config appsettings set \
+            --resource-group ${{ vars.RESOURCE_GROUP_NAME }} \
+            --name ${{ vars.APP_NAME }} \
+            --settings "Messaging__AdminApiKey=$MESSAGING_ADMIN_API_KEY" \
+            --output none
 
       - name: Configure token enrichment callout settings
         # Only set in the GitHub environments of repos that host token enrichment (api-user)
